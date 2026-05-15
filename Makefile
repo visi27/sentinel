@@ -34,7 +34,7 @@ test:
 
 phpstan:
 	docker compose exec app php bin/console cache:clear
-	docker compose exec app vendor/bin/phpstan analyse --no-progress
+	docker compose exec app vendor/bin/phpstan analyse --no-progress --memory-limit=512M
 
 cs:
 	docker compose exec app vendor/bin/php-cs-fixer fix --dry-run --diff

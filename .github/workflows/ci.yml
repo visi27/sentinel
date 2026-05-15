@@ -64,7 +64,7 @@ jobs:
         run: APP_ENV=dev php bin/console cache:clear
 
       - name: PHPStan
-        run: vendor/bin/phpstan analyse --no-progress
+        run: vendor/bin/phpstan analyse --no-progress --memory-limit=512M
 
       - name: Code style
         run: vendor/bin/php-cs-fixer fix --dry-run --diff
