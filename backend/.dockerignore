@@ -1,6 +1,3 @@
-.git
-.github
-docs
 var
 vendor
 .phpunit.cache

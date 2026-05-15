@@ -1,12 +1,12 @@
 services:
   app:
     build:
-      context: .
+      context: ./backend
       target: app
     ports:
       - "8000:8000"
     volumes:
-      - .:/app
+      - ./backend:/app
     environment:
       # APP_ENV is intentionally left to .env so PHPUnit can override it to
       # "test" — a real OS env var would shadow the test-suite override.
