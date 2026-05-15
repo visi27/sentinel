@@ -1,0 +1,49 @@
+services:
+  app:
+    build:
+      context: .
+      target: app
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    environment:
+      # APP_ENV is intentionally left to .env so PHPUnit can override it to
+      # "test" — a real OS env var would shadow the test-suite override.
+      DATABASE_URL: "postgresql://app:app@postgres:5432/cards?serverVersion=16&charset=utf8"
+      REDIS_URL: redis://redis:6379
+      MESSENGER_TRANSPORT_DSN: doctrine://default?auto_setup=0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: cards
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d cards"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  postgres_data:
