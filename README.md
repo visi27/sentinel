@@ -111,8 +111,9 @@ CARD_ID=$(curl -s -X POST http://localhost:8000/api/cards \
   -H 'Content-Type: application/json' \
   -d '{
     "cardholder_id": "01HZZX5PYZ7Q4VQNF1B8K6C9MT",
-    "spending_limits": {"per_transaction": 50000, "daily": 200000, "monthly": 1000000, "currency": "USD"},
+    "spending_limits": {"per_transaction": 50000, "daily": 200000, "monthly": 1000000},
     "initial_balance": 100000,
+    "currency": "USD",
     "allowed_merchant_categories": ["4121", "5812"]
   }' | jq -r .id)
 
