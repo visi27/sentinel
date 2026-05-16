@@ -52,7 +52,7 @@
     </div>
   </div>
 
-  <script id="api-reference" data-url="/openapi.yaml"></script>
+  <div id="app"></div>
 
   <script>
     // ── HMAC signing interceptor ──────────────────────────────────────
@@ -122,5 +122,14 @@
   </script>
 
   <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+  <script>
+    // Disable the "Ask AI" agent panel. On localhost, Scalar enables it
+    // by default with 10 free messages — fine for evaluation traffic
+    // but pointless noise for a reviewer evaluating a code sample.
+    Scalar.createApiReference("#app", {
+      url: "/openapi.yaml",
+      agent: { disabled: true },
+    });
+  </script>
 </body>
 </html>
