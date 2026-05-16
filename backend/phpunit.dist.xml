@@ -34,4 +34,10 @@
             <directory>src</directory>
         </include>
     </source>
+
+    <extensions>
+        <!-- Wraps each test in a transaction that rolls back, so the test
+             database stays clean and integration tests stay independent. -->
+        <bootstrap class="DAMA\DoctrineTestBundle\PHPUnit\PHPUnitExtension"/>
+    </extensions>
 </phpunit>

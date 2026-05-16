@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<doctrine-mapping xmlns="http://doctrine-project.org/schemas/orm/doctrine-mapping"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  xsi:schemaLocation="http://doctrine-project.org/schemas/orm/doctrine-mapping
+                  https://www.doctrine-project.org/schemas/orm/doctrine-mapping.xsd">
+
+    <entity name="App\Domain\Authorization\Authorization" table="authorizations">
+        <indexes>
+            <index name="idx_authorizations_card_id" columns="card_id"/>
+            <index name="idx_authorizations_requested_at" columns="requested_at"/>
+        </indexes>
+
+        <unique-constraints>
+            <!-- Hard backstop for inbound-webhook idempotency: even under a
+                 race, the DB rejects a duplicate processor_auth_id. -->
+            <unique-constraint name="uniq_authorizations_processor_auth_id"
+                               columns="processor_auth_id"/>
+        </unique-constraints>
+
+        <id name="id" type="authorization_id" column="id">
+            <generator strategy="NONE"/>
+        </id>
+
+        <field name="cardId" type="card_id" column="card_id"/>
+        <field name="processorAuthId" type="string" length="255" column="processor_auth_id"/>
+
+        <embedded name="amount" class="App\Domain\Money\Money"/>
+
+        <field name="merchant" type="merchant" column="merchant"/>
+        <field name="status" type="string" length="20" enum-type="App\Domain\Authorization\AuthorizationStatus"/>
+        <field name="declineReason" type="string" length="50" nullable="true"
+               column="decline_reason"
+               enum-type="App\Domain\Authorization\DeclineReason"/>
+
+        <field name="requestedAt" type="datetimetz_immutable" column="requested_at"/>
+        <field name="decidedAt" type="datetimetz_immutable" column="decided_at" nullable="true"/>
+        <field name="reversedAt" type="datetimetz_immutable" column="reversed_at" nullable="true"/>
+    </entity>
+
+</doctrine-mapping>

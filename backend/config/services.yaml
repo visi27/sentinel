@@ -1,25 +1,42 @@
 # This file is the entry point to configure your own services.
 # Files in the packages/ subdirectory configure your dependencies.
 
-# Put parameters here that don't need to change on each machine where the app is deployed
-# https://symfony.com/doc/current/best_practices.html#use-parameters-for-application-configuration
-parameters:
-
 services:
-    # default configuration for services in *this* file
     _defaults:
-        autowire: true      # Automatically injects dependencies in your services.
-        autoconfigure: true # Automatically registers your services as commands, event subscribers, etc.
+        autowire: true
+        autoconfigure: true
 
-    # makes classes in src/ available to be used as services
-    # this creates a service per class whose id is the fully-qualified class name
     App\:
         resource: '../src/'
         exclude:
-            # The domain layer is framework-free: value objects, aggregates and
-            # domain events are not services and must not be autowired.
+            # The domain layer is framework-free: value objects, aggregates,
+            # domain events and events are not services and must not be autowired.
             - '../src/Domain/'
             - '../src/Kernel.php'
+            # Custom Doctrine types are instantiated by Doctrine's type
+            # registry, not by Symfony's DI container.
+            - '../src/Infrastructure/Persistence/Doctrine/Type/'
 
-    # add more service definitions when explicit configuration is needed
-    # please note that last definitions always *replace* previous ones
+    # Bind ports defined in Domain and Application to their infrastructure
+    # implementations. Handlers depend on the interface; the container
+    # threads the concrete class through.
+    App\Domain\Card\CardRepository: '@App\Infrastructure\Persistence\Doctrine\DoctrineCardRepository'
+    App\Domain\Authorization\AuthorizationRepository: '@App\Infrastructure\Persistence\Doctrine\DoctrineAuthorizationRepository'
+
+    App\Application\Shared\Clock: '@App\Infrastructure\Clock\SystemClock'
+    App\Application\Shared\TransactionManager: '@App\Infrastructure\Persistence\Doctrine\DoctrineTransactionManager'
+    App\Application\Outbox\OutboxRepository: '@App\Infrastructure\Persistence\Doctrine\DoctrineOutboxRepository'
+    App\Application\Idempotency\IdempotencyStore: '@App\Infrastructure\Idempotency\RedisIdempotencyStore'
+    App\Application\Card\CardQueryService: '@App\Infrastructure\Persistence\Doctrine\Query\DoctrineCardQueryService'
+    App\Application\Authorization\AuthorizationQueryService: '@App\Infrastructure\Persistence\Doctrine\Query\DoctrineAuthorizationQueryService'
+
+    # Native ext-redis client constructed from REDIS_URL. The cache adapter
+    # factory parses DSN, TLS, sentinel/cluster modes uniformly.
+    Redis:
+        class: Redis
+        factory: ['Symfony\Component\Cache\Adapter\RedisAdapter', 'createConnection']
+        arguments: ['%env(REDIS_URL)%']
+
+    App\Infrastructure\Webhook\ProcessorWebhookSignatureVerifier:
+        arguments:
+            $sharedSecret: '%env(PROCESSOR_WEBHOOK_SECRET)%'

@@ -41,6 +41,16 @@ abstract class Identifier
         return $this->value;
     }
 
+    /**
+     * Lets Doctrine's UnitOfWork cast the identifier to its scalar form when
+     * building the identity-map hash — without this, Doctrine raises a
+     * "could not be converted to string" error on persist/find.
+     */
+    public function __toString(): string
+    {
+        return $this->value;
+    }
+
     public function equals(self $other): bool
     {
         return $other::class === static::class && $other->value === $this->value;

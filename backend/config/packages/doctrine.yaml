@@ -8,6 +8,18 @@ doctrine:
 
         profiling_collect_backtrace: '%kernel.debug%'
         use_savepoints: true
+
+        # outbox_events and messenger_messages are managed outside the ORM
+        # (DBAL inserts only); exclude them from schema-diff comparisons.
+        schema_filter: '~^(?!outbox_events|messenger_messages)~'
+
+        # Custom types map domain value objects to native Postgres columns.
+        types:
+            card_id: App\Infrastructure\Persistence\Doctrine\Type\CardIdType
+            cardholder_id: App\Infrastructure\Persistence\Doctrine\Type\CardholderIdType
+            authorization_id: App\Infrastructure\Persistence\Doctrine\Type\AuthorizationIdType
+            merchant: App\Infrastructure\Persistence\Doctrine\Type\MerchantType
+            merchant_category_code_list: App\Infrastructure\Persistence\Doctrine\Type\MerchantCategoryCodeListType
     orm:
         auto_generate_proxy_classes: true
         enable_lazy_ghost_objects: true

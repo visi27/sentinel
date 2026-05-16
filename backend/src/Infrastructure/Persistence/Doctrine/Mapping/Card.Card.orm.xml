@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<doctrine-mapping xmlns="http://doctrine-project.org/schemas/orm/doctrine-mapping"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  xsi:schemaLocation="http://doctrine-project.org/schemas/orm/doctrine-mapping
+                  https://www.doctrine-project.org/schemas/orm/doctrine-mapping.xsd">
+
+    <entity name="App\Domain\Card\Card" table="cards">
+        <indexes>
+            <index name="idx_cards_cardholder_id" columns="cardholder_id"/>
+            <index name="idx_cards_status" columns="status"/>
+        </indexes>
+
+        <id name="id" type="card_id" column="id">
+            <generator strategy="NONE"/>
+        </id>
+
+        <field name="cardholderId" type="cardholder_id" column="cardholder_id"/>
+        <field name="status" type="string" length="20" enum-type="App\Domain\Card\CardStatus"/>
+
+        <embedded name="spendingLimits" class="App\Domain\Card\SpendingLimits"/>
+        <embedded name="availableBalance" class="App\Domain\Money\Money"/>
+        <embedded name="dailySpend" class="App\Domain\Money\Money"/>
+        <embedded name="monthlySpend" class="App\Domain\Money\Money"/>
+
+        <field name="allowedMerchantCategoryCodes"
+               type="merchant_category_code_list"
+               column="allowed_merchant_category_codes"/>
+
+        <field name="issuedAt" type="datetimetz_immutable" column="issued_at"/>
+        <field name="activatedAt" type="datetimetz_immutable" column="activated_at" nullable="true"/>
+        <field name="closedAt" type="datetimetz_immutable" column="closed_at" nullable="true"/>
+        <field name="lastSpendDate" type="datetimetz_immutable" column="last_spend_date" nullable="true"/>
+
+        <!-- Optimistic locking: a concurrent authorization that loaded the
+             same row sees the bump on commit and fails. -->
+        <field name="version" type="integer" version="true"/>
+    </entity>
+
+</doctrine-mapping>
