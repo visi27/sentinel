@@ -10,6 +10,26 @@ who go deep should read this; what's here isn't covered in the README.
 > already adequately conveyed by the project tree in the README; it
 > isn't drawn here.
 
+## Headline decisions
+
+If you only read five things in this document, read these:
+
+- **Two aggregates, not one** (`Card` + `Authorization`) — different mutability,
+  transactional scope, and retention; they communicate through the outbox.
+  See [§5](#5-aggregates-card-and-authorization).
+- **Outbox pattern with `FOR UPDATE SKIP LOCKED`** — the only way to atomically
+  write an aggregate change and its notification when no two-phase commit
+  spans the DB and the queue. See [§9.1](#91-outbox-pattern).
+- **Two-layer idempotency** (Redis fast path + DB `UNIQUE` backstop) — the
+  200 ms budget needs the cache; the durable constraint catches the long-tail
+  retry that arrives after the cache expires. See [§9.2](#92-idempotency-two-layers).
+- **Lambda for outbound delivery** *(deliberate spec deviation)* — inbound
+  stays a Symfony controller for latency; outbound is a Node Lambda behind
+  SQS. Boundary intentionally narrow. See [§10](#10-deliberate-spec-deviation--lambda-for-outbound-delivery).
+- **Hexagonal with XML mapping, not attributes** — the Domain layer has zero
+  framework imports; the price is XML mapping files in Infrastructure.
+  See [§6](#6-hexagonal-architecture) and [§11](#11-persistence-choices).
+
 ---
 
 ## Table of contents

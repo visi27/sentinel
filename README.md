@@ -50,11 +50,11 @@ this service.
                          │ POST /api/webhooks/authorization
                          │ X-Processor-Signature: t=…,v1=…
                          ▼
-   ┌────────────────────────────────────────────────────┐
-   │  AuthorizationWebhookController  (200ms budget)    │
-   │     1. verify HMAC signature                       │
-   │     2. Redis idempotency cache lookup              │
-   │     3. AuthorizeCardCommandHandler                 │
+   ┌────────────────────────────────────────────────────┐      ┌──────────────────┐
+   │  AuthorizationWebhookController  (200ms budget)    │      │ Redis            │
+   │     1. verify HMAC signature                       │ ◀──▶ │ (idempotency     │
+   │     2. idempotency cache lookup                    │      │  cache, 24h TTL) │
+   │     3. AuthorizeCardCommandHandler                 │      └──────────────────┘
    └──────────┬─────────────────────────────────────────┘
               │
               │  one transaction
@@ -110,8 +110,14 @@ Once `make up` finishes, three URLs are live:
 | <http://localhost:8000> | The Symfony app itself |
 | <http://localhost:8888> | Mock subscriber — captured outbound deliveries echo here |
 
-floci runs on 4566 internally; the AWS resources it provisions
-(SQS queue, DLQ, Lambda) are wired up by `infra/init/setup.sh` on
+A `docker compose ps` will also show four background containers with no
+reviewer-facing UI: `postgres`, `redis`, `floci` (LocalStack-compatible AWS
+emulator on 4566), and **`worker-outbox`** — the long-running PHP CLI that
+drains `outbox_events` → SQS → Lambda. A one-shot `lambda-builder` will
+appear as "exited" after bundling the Lambda zip; that's expected.
+
+The AWS resources floci provisions (SQS queue, DLQ, Lambda function,
+event-source mapping) are wired up by `infra/init/setup.sh` on
 container ready-state.
 
 ### Interactive API reference
@@ -156,6 +162,36 @@ curl -X POST "http://localhost:8000/api/cards/$CARD_ID/activate" \
 #    see the "Inbound webhook example" section below for the full
 #    payload and signing dance.
 ```
+
+## How to read this repo
+
+A 15-minute reading path, ordered to walk a single authorization request from
+the domain outward and then through the async tail. Each step is one file.
+
+1. **[`backend/src/Domain/Card/Card.php`](./backend/src/Domain/Card/Card.php)** —
+   The rich aggregate. Read `authorize()` and the rules engine; note that it
+   returns an `AuthorizationResult` rather than raising events (see
+   [ARCHITECTURE.md §5](./ARCHITECTURE.md#5-aggregates-card-and-authorization)
+   for why).
+2. **[`backend/src/Application/Card/AuthorizeCardCommandHandler.php`](./backend/src/Application/Card/AuthorizeCardCommandHandler.php)** —
+   Orchestration. Loads the aggregate, calls the domain, persists the
+   `Authorization` and outbox events in one transaction.
+3. **[`backend/src/Http/Controller/AuthorizationWebhookController.php`](./backend/src/Http/Controller/AuthorizationWebhookController.php)** —
+   Transport. HMAC verify → Redis idempotency lookup → handler → cache the
+   response. The 200 ms hot path lives here.
+4. **[`backend/tests/Functional/AuthorizationWebhookTest.php`](./backend/tests/Functional/AuthorizationWebhookTest.php)** —
+   End-to-end proof. Real HTTP through the kernel; signature, idempotency,
+   and the full decision chain all exercised.
+5. **[`backend/src/Infrastructure/Outbox/OutboxPublishCommand.php`](./backend/src/Infrastructure/Outbox/OutboxPublishCommand.php)** —
+   The async tail. `SELECT … FOR UPDATE SKIP LOCKED`, dispatch to SQS, mark
+   published — all in one transaction so a SendMessage failure rolls back
+   cleanly.
+6. **[`lambda/src/index.ts`](./lambda/src/index.ts)** — The outbound Lambda.
+   POSTs the signed delivery; reports per-message failures via SQS's
+   partial-batch response so one bad subscriber doesn't fail the batch.
+
+For the deeper architectural narrative — bounded contexts, reliability
+patterns, rejected alternatives — read [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## Key design decisions
 
