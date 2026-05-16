@@ -5,7 +5,12 @@ issues virtual spending cards, evaluates inbound authorization webhooks against
 per-card rules, and fans the resulting events out to downstream subscribers via
 an SQS-triggered Lambda.
 
-![PHP](https://img.shields.io/badge/php-8.3-777bb4) ![Symfony](https://img.shields.io/badge/symfony-6.4_LTS-000000) ![Doctrine](https://img.shields.io/badge/doctrine_orm-3.x-fc6a31) ![PHPStan](https://img.shields.io/badge/phpstan-level_8-1099c0) ![Tests](https://img.shields.io/badge/tests-149_passing-2ea44f)
+![PHP](https://img.shields.io/badge/php-8.3-777bb4) ![Symfony](https://img.shields.io/badge/symfony-6.4_LTS-000000) ![Doctrine](https://img.shields.io/badge/doctrine_orm-3.x-fc6a31) ![PHPStan](https://img.shields.io/badge/phpstan-level_8-1099c0) ![Tests](https://img.shields.io/badge/tests-153_passing-2ea44f) ![OpenAPI](https://img.shields.io/badge/openapi-3.1-6ba539)
+
+> **Reviewer shortcut**: `make up && make install && make migrate`, then
+> open <http://localhost:8000/docs> — full OpenAPI reference with a
+> built-in interactive console. The page signs the inbound webhook
+> with HMAC for you. Run `make check` to see the **153 tests** pass.
 
 ## What this is
 
@@ -97,20 +102,38 @@ make install
 make migrate
 ```
 
-Once `make up` finishes, the app listens on **http://localhost:8000**,
-floci on **http://localhost:4566**, and the mock receiver on
-**http://localhost:8888** (visit it in a browser to see captured
-outbound deliveries).
+Once `make up` finishes, three URLs are live:
+
+| URL | Purpose |
+|---|---|
+| <http://localhost:8000/docs> | **Interactive API console** (OpenAPI 3.1 + Scalar). Recommended entry point. |
+| <http://localhost:8000> | The Symfony app itself |
+| <http://localhost:8888> | Mock subscriber — captured outbound deliveries echo here |
+
+floci runs on 4566 internally; the AWS resources it provisions
+(SQS queue, DLQ, Lambda) are wired up by `infra/init/setup.sh` on
+container ready-state.
 
 ### Interactive API reference
 
-Open **http://localhost:8000/docs** for the full OpenAPI 3.1 reference
-with a built-in "Try it out" console. The page handles the inbound
-webhook's HMAC signing automatically — paste in a body, hit Send, and
-the signature is computed from the secret in the sticky settings
-banner. Spec source: [`backend/openapi.yaml`](./backend/openapi.yaml).
+Open **<http://localhost:8000/docs>** for the full OpenAPI 3.1
+reference with a built-in "Try it out" console.
 
-Run a sample authorization:
+- The page signs `/api/webhooks/authorization` with HMAC-SHA256 in the
+  browser at send time — reviewers don't need a curl one-liner to
+  exercise the signed endpoint.
+- A sticky settings banner exposes the `X-API-Key` and processor
+  HMAC secret, pre-filled with the `.env` dev defaults
+  (`dev_admin_key`, `dev_processor_webhook_secret`). Change them in
+  place to test the rejection paths.
+
+Spec source: [`backend/openapi.yaml`](./backend/openapi.yaml) — a single
+hand-written file. A functional test
+(`tests/Functional/OpenApiSpecTest`) guards against drift: every
+routed endpoint must be in the spec, and the `IssueCard` 201
+response shape must match what the controller returns.
+
+### Or use curl
 
 ```bash
 # 1. Issue a card and capture its id.
@@ -191,15 +214,17 @@ sentinel/
 │   │   │   ├── Webhook/                HMAC verifier + SQS dispatcher
 │   │   │   └── Clock/                  SystemClock
 │   │   └── Http/            Thin transport layer
-│   │       ├── Controller/  One file per route, __invoke handlers
+│   │       ├── Controller/  One file per route, __invoke handlers (incl. DocsController)
 │   │       ├── Request/     Request parsing + JSON validation
+│   │       ├── Resources/   api-docs.html (Scalar wrapper + HMAC signing interceptor)
 │   │       ├── Security/    ApiKeyAuthenticator (two virtual users)
 │   │       ├── EventListener/  ExceptionSubscriber → JSON error envelope
 │   │       └── Exception/   InvalidRequestException
+│   ├── openapi.yaml         OpenAPI 3.1 spec (source of truth, served at /openapi.yaml)
 │   ├── tests/
 │   │   ├── Unit/            Pure unit tests, no container
 │   │   ├── Integration/     KernelTestCase + real Postgres/Redis via DAMA
-│   │   └── Functional/      WebTestCase HTTP round-trips
+│   │   └── Functional/      WebTestCase HTTP round-trips (incl. OpenApiSpecTest drift guard)
 │   ├── config/packages/     Symfony bundle config (doctrine, security, subscribers)
 │   └── migrations/          Doctrine migrations
 ├── lambda/                  Outbound delivery Lambda (Node 22, TypeScript)
@@ -237,6 +262,9 @@ CI runs all three on every push (see `.github/workflows/ci.yml`).
 header is `X-Processor-Signature: t=<unix>,v1=<hex-hmac>`, signing the
 canonical message `<unix>.<request-body>`. A 5-minute clock skew is
 tolerated; outside that window the request is rejected.
+
+> The `/docs` console (above) signs this endpoint for you in-browser.
+> The example below is for terminal use.
 
 ```bash
 BODY='{
