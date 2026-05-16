@@ -31,5 +31,7 @@ RUN set -eux; \
 EXPOSE 8000
 
 # The built-in PHP server keeps the sample simple. Production would use
-# PHP-FPM behind Nginx; see ARCHITECTURE.md.
-CMD ["php", "-S", "0.0.0.0:8000", "-t", "public"]
+# PHP-FPM behind Nginx; see ARCHITECTURE.md. The router script forwards
+# every non-static request to Symfony's front controller — without it,
+# the server treats paths like /openapi.yaml as missing-file 404s.
+CMD ["php", "-S", "0.0.0.0:8000", "-t", "public", "public/index.php"]

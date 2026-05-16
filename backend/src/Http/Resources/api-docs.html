@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Sentinel · API Reference</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { margin: 0; }
+
+    /* Sticky settings banner so reviewers see the API-key + HMAC-secret
+       inputs before they hit Send. The values are pulled from .env's
+       dev defaults; reviewers can override here without touching the
+       container. */
+    #settings {
+      position: sticky; top: 0; z-index: 1000;
+      background: #1e1e24; color: #eee;
+      padding: 12px 16px;
+      display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+      font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      border-bottom: 1px solid #333;
+    }
+    #settings strong { color: #fff; margin-right: 8px; }
+    #settings label { display: flex; flex-direction: column; gap: 2px; }
+    #settings span { font-size: 11px; color: #999; }
+    #settings input {
+      background: #2a2a32; color: #fff;
+      border: 1px solid #444; border-radius: 4px;
+      padding: 6px 8px; font: inherit; min-width: 220px;
+    }
+    #settings .hint {
+      color: #888; font-size: 11px;
+      margin-left: auto; max-width: 380px; text-align: right;
+    }
+  </style>
+</head>
+<body>
+  <div id="settings">
+    <strong>Sentinel</strong>
+    <label>
+      <span>X-API-Key (used by /api/cards/*)</span>
+      <input id="api-key-input" type="text" value="dev_admin_key" />
+    </label>
+    <label>
+      <span>Processor webhook secret (HMAC)</span>
+      <input id="processor-secret-input" type="text" value="dev_processor_webhook_secret" />
+    </label>
+    <div class="hint">
+      Requests to <code>/api/webhooks/authorization</code> are signed
+      automatically with the secret above.<br />
+      Requests to <code>/api/cards/*</code> use the API key above as
+      the <code>X-API-Key</code> header.
+    </div>
+  </div>
+
+  <script id="api-reference" data-url="/openapi.yaml"></script>
+
+  <script>
+    // ── HMAC signing interceptor ──────────────────────────────────────
+    //
+    // Scalar (and most OpenAPI consoles) build requests through the
+    // standard fetch() API. We monkey-patch fetch once on load:
+    //
+    // - Requests to /api/webhooks/authorization get a fresh timestamp,
+    //   HMAC-SHA256(secret, `${ts}.${body}`), and the
+    //   X-Processor-Signature header. The body is signed AS SENT — any
+    //   edits the reviewer makes in the console are included.
+    // - Requests to /api/cards/* get the X-API-Key header from the
+    //   settings input.
+    //
+    // The interceptor is a development convenience for this page only;
+    // production consumers compute signatures server-side.
+
+    const apiKeyInput = document.getElementById("api-key-input");
+    const secretInput = document.getElementById("processor-secret-input");
+
+    async function hmacHex(secret, message) {
+      const enc = new TextEncoder();
+      const key = await crypto.subtle.importKey(
+        "raw",
+        enc.encode(secret),
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["sign"],
+      );
+      const sig = await crypto.subtle.sign("HMAC", key, enc.encode(message));
+      return Array.from(new Uint8Array(sig))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+    }
+
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async (input, init = {}) => {
+      const url = typeof input === "string" ? input : input.url;
+      const method = (init.method || (input.method ?? "GET")).toUpperCase();
+
+      const headers = new Headers(init.headers || {});
+
+      // /api/webhooks/authorization → sign body with HMAC.
+      if (url.endsWith("/api/webhooks/authorization") && method === "POST") {
+        const body =
+          typeof init.body === "string"
+            ? init.body
+            : init.body
+              ? await new Response(init.body).text()
+              : "";
+        const ts = Math.floor(Date.now() / 1000);
+        const sig = await hmacHex(secretInput.value, `${ts}.${body}`);
+        headers.set("X-Processor-Signature", `t=${ts},v1=${sig}`);
+        init = { ...init, headers, body };
+      }
+
+      // /api/cards/* → attach API key from the settings input. Skip
+      // documented requests (openapi.yaml, /docs itself) and the
+      // health endpoint.
+      else if (url.includes("/api/cards")) {
+        if (apiKeyInput.value) headers.set("X-API-Key", apiKeyInput.value);
+        init = { ...init, headers };
+      }
+
+      return originalFetch(input, init);
+    };
+  </script>
+
+  <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+</body>
+</html>

@@ -56,6 +56,11 @@ services:
             $adminKey: '%env(ADMIN_API_KEY)%'
             $readonlyKey: '%env(READONLY_API_KEY)%'
 
+    App\Http\Controller\DocsController:
+        arguments:
+            $projectDir: '%kernel.project_dir%'
+        tags: ['controller.service_arguments']
+
     App\Application\Webhook\SubscriberRegistry:
         arguments:
             $subscribers: '%app.subscribers%'

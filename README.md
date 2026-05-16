@@ -102,15 +102,23 @@ floci on **http://localhost:4566**, and the mock receiver on
 **http://localhost:8888** (visit it in a browser to see captured
 outbound deliveries).
 
+### Interactive API reference
+
+Open **http://localhost:8000/docs** for the full OpenAPI 3.1 reference
+with a built-in "Try it out" console. The page handles the inbound
+webhook's HMAC signing automatically — paste in a body, hit Send, and
+the signature is computed from the secret in the sticky settings
+banner. Spec source: [`backend/openapi.yaml`](./backend/openapi.yaml).
+
 Run a sample authorization:
 
 ```bash
 # 1. Issue a card and capture its id.
 CARD_ID=$(curl -s -X POST http://localhost:8000/api/cards \
-  -H 'X-API-Key: change_me_admin' \
+  -H 'X-API-Key: dev_admin_key' \
   -H 'Content-Type: application/json' \
   -d '{
-    "cardholder_id": "01HZZX5PYZ7Q4VQNF1B8K6C9MT",
+    "cardholder_id": "01890d3a-3e95-7000-8000-1234567890ab",
     "spending_limits": {"per_transaction": 50000, "daily": 200000, "monthly": 1000000},
     "initial_balance": 100000,
     "currency": "USD",
@@ -119,7 +127,7 @@ CARD_ID=$(curl -s -X POST http://localhost:8000/api/cards \
 
 # 2. Activate it.
 curl -X POST "http://localhost:8000/api/cards/$CARD_ID/activate" \
-  -H 'X-API-Key: change_me_admin'
+  -H 'X-API-Key: dev_admin_key'
 
 # 3. Authorize a transaction. The inbound webhook is HMAC-signed —
 #    see the "Inbound webhook example" section below for the full
@@ -244,7 +252,7 @@ BODY='{
   "requested_at": "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"
 }'
 TS=$(date +%s)
-SECRET=change_me   # value of PROCESSOR_WEBHOOK_SECRET
+SECRET=dev_processor_webhook_secret   # value of PROCESSOR_WEBHOOK_SECRET
 SIG=$(printf '%s.%s' "$TS" "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -r | cut -d' ' -f1)
 
 curl -X POST http://localhost:8000/api/webhooks/authorization \

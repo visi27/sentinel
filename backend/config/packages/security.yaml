@@ -31,6 +31,9 @@ security:
 
     access_control:
         - { path: ^/health$, roles: PUBLIC_ACCESS }
+        # The OpenAPI spec and interactive console are publicly readable.
+        # The spec contains no secrets; the console renders it client-side.
+        - { path: ^/(docs|openapi\.yaml)$, roles: PUBLIC_ACCESS }
         - { path: ^/api/webhooks/, roles: PUBLIC_ACCESS }
         - { path: ^/api/cards, methods: [GET], roles: ROLE_READONLY }
         - { path: ^/api/cards, methods: [POST], roles: ROLE_ADMIN }
