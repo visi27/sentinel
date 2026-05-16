@@ -170,9 +170,10 @@ final class Card extends AggregateRoot
         $this->dailySpend = $dailySpend->add($amount);
         $this->monthlySpend = $monthlySpend->add($amount);
         $this->lastSpendDate = $now;
-        // Bump the version so a concurrent authorization that loaded the same
-        // card state fails the optimistic-lock check on save.
-        ++$this->version;
+        // Doctrine increments the version field automatically on UPDATE of a
+        // versioned entity; manually bumping it here conflicts with that
+        // handling. A concurrent authorization that loaded the same row
+        // still fails the WHERE version = ? clause on commit.
 
         return AuthorizationResult::approved();
     }

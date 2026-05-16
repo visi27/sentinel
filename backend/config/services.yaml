@@ -17,6 +17,13 @@ services:
             # registry, not by Symfony's DI container.
             - '../src/Infrastructure/Persistence/Doctrine/Type/'
 
+    # Invokable controllers don't extend AbstractController, so the
+    # autoconfigure pass doesn't tag them. Tag the whole directory so
+    # Symfony's controller resolver can fetch them from the container.
+    App\Http\Controller\:
+        resource: '../src/Http/Controller/'
+        tags: ['controller.service_arguments']
+
     # Bind ports defined in Domain and Application to their infrastructure
     # implementations. Handlers depend on the interface; the container
     # threads the concrete class through.
@@ -40,3 +47,8 @@ services:
     App\Infrastructure\Webhook\ProcessorWebhookSignatureVerifier:
         arguments:
             $sharedSecret: '%env(PROCESSOR_WEBHOOK_SECRET)%'
+
+    App\Http\Security\ApiKeyAuthenticator:
+        arguments:
+            $adminKey: '%env(ADMIN_API_KEY)%'
+            $readonlyKey: '%env(READONLY_API_KEY)%'

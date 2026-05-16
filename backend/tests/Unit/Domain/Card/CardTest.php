@@ -272,10 +272,9 @@ final class CardTest extends TestCase
 
     // --- authorize: approvals and state mutation ------------------------
 
-    public function test_successful_authorize_decrements_balance_and_increments_spend(): void
+    public function test_successful_authorize_decrements_balance_and_updates_spend(): void
     {
         $card = $this->activeCard(balance: Money::usd(500));
-        $startingVersion = $card->version();
 
         $result = $card->authorize(Money::usd(120), $this->aMerchant(), $this->at('2026-05-01T12:00:00Z'));
 
@@ -283,7 +282,6 @@ final class CardTest extends TestCase
         self::assertSame(380, $card->availableBalance()->amountInMinorUnits);
         self::assertSame(120, $card->dailySpend()->amountInMinorUnits);
         self::assertSame(120, $card->monthlySpend()->amountInMinorUnits);
-        self::assertSame($startingVersion + 1, $card->version());
     }
 
     public function test_authorize_does_not_raise_an_event_itself(): void
@@ -298,16 +296,14 @@ final class CardTest extends TestCase
         self::assertSame([], $card->releaseEvents());
     }
 
-    public function test_a_decline_does_not_mutate_balance_or_version(): void
+    public function test_a_decline_does_not_mutate_balance(): void
     {
         $card = $this->activeCard(balance: Money::usd(50));
         $balanceBefore = $card->availableBalance()->amountInMinorUnits;
-        $versionBefore = $card->version();
 
         $card->authorize(Money::usd(100), $this->aMerchant(), $this->at('2026-05-01T12:00:00Z'));
 
         self::assertSame($balanceBefore, $card->availableBalance()->amountInMinorUnits);
-        self::assertSame($versionBefore, $card->version());
     }
 
     public function test_daily_spend_accumulates_within_a_single_day(): void

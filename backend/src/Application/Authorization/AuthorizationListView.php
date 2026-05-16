@@ -8,7 +8,7 @@ namespace App\Application\Authorization;
  * A page of AuthorizationView rows plus the metadata a client needs to
  * navigate further pages.
  */
-final class AuthorizationListView
+final class AuthorizationListView implements \JsonSerializable
 {
     /**
      * @param list<AuthorizationView> $items
@@ -28,5 +28,19 @@ final class AuthorizationListView
         }
 
         return (int) ceil($this->totalItems / $this->perPage);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function jsonSerialize(): array
+    {
+        return [
+            'items' => $this->items,
+            'page' => $this->page,
+            'per_page' => $this->perPage,
+            'total_items' => $this->totalItems,
+            'total_pages' => $this->totalPages(),
+        ];
     }
 }

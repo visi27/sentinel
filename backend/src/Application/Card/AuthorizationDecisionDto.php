@@ -11,7 +11,7 @@ use App\Domain\Authorization\Authorization;
  * on purpose: the processor needs the decision and (when declined) the
  * reason — nothing else.
  */
-final class AuthorizationDecisionDto
+final class AuthorizationDecisionDto implements \JsonSerializable
 {
     public function __construct(
         public readonly string $authorizationId,
@@ -27,5 +27,17 @@ final class AuthorizationDecisionDto
             $authorization->status()->value,
             $authorization->declineReason()?->value,
         );
+    }
+
+    /**
+     * @return array{authorization_id: string, status: string, decline_reason: ?string}
+     */
+    public function jsonSerialize(): array
+    {
+        return [
+            'authorization_id' => $this->authorizationId,
+            'status' => $this->status,
+            'decline_reason' => $this->declineReason,
+        ];
     }
 }
