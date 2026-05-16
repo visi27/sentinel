@@ -213,13 +213,13 @@ patterns, rejected alternatives — read [ARCHITECTURE.md](./ARCHITECTURE.md).
   `authorizations.processor_auth_id` is the durable backstop. The
   cached response is the exact JSON the first call produced, so the
   processor's retries always see the same envelope.
-- **Lambda for outbound delivery** *(deliberate spec deviation)*: the
-  spec describes outbound delivery as a Symfony Messenger console
-  worker. This implementation runs the delivery as an AWS Lambda
-  consuming an SQS queue, emulated locally via
-  [floci](https://github.com/floci-io/floci). Inbound stays a Symfony
-  controller — Lambda cold starts are too unpredictable for the 200ms
-  budget. See [ARCHITECTURE.md](./ARCHITECTURE.md) for rationale.
+- **Asymmetric runtime split**: outbound webhook delivery runs as a
+  Node Lambda consuming an SQS queue (emulated locally via
+  [floci](https://github.com/floci-io/floci)) so retry, dead-lettering,
+  and horizontal scale are managed primitives. Inbound stays a Symfony
+  controller — Lambda cold starts are too unpredictable for the 200 ms
+  inbound budget. See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full
+  rationale and the alternatives that were rejected.
 - **Optimistic locking, not pessimistic**: the `Card` aggregate carries
   a `version` field; Doctrine increments it on UPDATE and the WHERE
   clause guards against lost-update races. No `SELECT … FOR UPDATE`
@@ -395,7 +395,8 @@ ordered steps would be:
 2. **Admin replay + observability**: `GET /api/admin/webhook-deliveries?status=failed`
    and `POST /api/admin/webhook-deliveries/{id}/replay`, paired with
    CloudWatch metrics + alarms on DLQ depth, invoke failures, and
-   throttles. Listed in the spec as "if time permits"; deferred here.
+   throttles. Deferred for this work sample; meaningful only after
+   step 1 lands.
 3. **HIPAA + key management**: the service is HIPAA-aware in shape
    (audit logging, encrypted-at-rest assumptions) but stores no real
    PHI. Production needs KMS-rooted secrets, audit-log destinations

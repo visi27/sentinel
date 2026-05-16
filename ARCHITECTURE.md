@@ -23,9 +23,10 @@ If you only read five things in this document, read these:
 - **Two-layer idempotency** (Redis fast path + DB `UNIQUE` backstop) — the
   200 ms budget needs the cache; the durable constraint catches the long-tail
   retry that arrives after the cache expires. See [§9.2](#92-idempotency-two-layers).
-- **Lambda for outbound delivery** *(deliberate spec deviation)* — inbound
-  stays a Symfony controller for latency; outbound is a Node Lambda behind
-  SQS. Boundary intentionally narrow. See [§10](#10-deliberate-spec-deviation--lambda-for-outbound-delivery).
+- **Asymmetric runtime split** — inbound stays a Symfony controller for the
+  200 ms latency budget; outbound is a Node Lambda behind SQS, where retry
+  and dead-lettering are managed primitives. See
+  [§10](#10-outbound-delivery-via-lambda-and-sqs).
 - **Hexagonal with XML mapping, not attributes** — the Domain layer has zero
   framework imports; the price is XML mapping files in Infrastructure.
   See [§6](#6-hexagonal-architecture) and [§11](#11-persistence-choices).
@@ -43,7 +44,7 @@ If you only read five things in this document, read these:
 7. [Inbound authorization flow](#7-inbound-authorization-flow)
 8. [Outbound delivery flow](#8-outbound-delivery-flow)
 9. [Async + reliability patterns](#9-async--reliability-patterns)
-10. [Deliberate spec deviation — Lambda for outbound delivery](#10-deliberate-spec-deviation--lambda-for-outbound-delivery)
+10. [Outbound delivery via Lambda and SQS](#10-outbound-delivery-via-lambda-and-sqs)
 11. [Persistence choices](#11-persistence-choices)
 12. [Testing strategy](#12-testing-strategy)
 13. [What's intentionally missing for production](#13-whats-intentionally-missing-for-production)
@@ -211,7 +212,7 @@ debit cards from clinical trials. The vocabulary that's modeled:
 | PCI scope / PAN storage | Sentinel handles tokenized identifiers only. |
 | Authorization holds, captures, refunds, reversals (beyond the type) | Reversal exists as a type but isn't wired to a flow — the additional state machine isn't load-bearing for the patterns this codebase demonstrates. |
 | Real card processor protocol (ISO 8583, Visa VAA, etc.) | The webhook shape is a simplification. The interesting work — signature verification, idempotency, latency budget — is identical. |
-| Fraud detection, velocity rules, geo-rules | Listed in the spec as out of scope. |
+| Fraud detection, velocity rules, geo-rules | Out of scope for this work sample; would be a separate bounded context in production. |
 
 ---
 
@@ -296,7 +297,7 @@ Application ports (in `Application/`):
 | `TransactionManager` | `DoctrineTransactionManager` (prod), `SynchronousTransactionManager` (tests) | The application defines the transaction boundary; Doctrine knows how to commit |
 | `OutboxRepository` (write) + `OutboxReader` (read) | `DoctrineOutboxRepository` (both) | The handler and the worker want different shapes of the same data |
 | `IdempotencyStore` | `RedisIdempotencyStore`, `InMemoryIdempotencyStore` (tests) | Redis is one choice; Memcached or DB-backed would be others |
-| `OutboundWebhookDispatcher` | `SqsOutboundWebhookDispatcher`, `InMemoryOutboundWebhookDispatcher` (tests) | The Lambda deviation is contained behind this port |
+| `OutboundWebhookDispatcher` | `SqsOutboundWebhookDispatcher`, `InMemoryOutboundWebhookDispatcher` (tests) | The Lambda-and-SQS implementation is contained behind this port |
 | `WebhookDeliveryRepository` | `DoctrineWebhookDeliveryRepository` | Separate from outbox — different write cardinality |
 | `CardQueryService`, `AuthorizationQueryService` | Doctrine DBAL implementations | Read-side bypasses the aggregate to avoid loading whole graphs for a list view |
 
@@ -487,7 +488,7 @@ published before the row was visible.
 | **Event sourcing** | The domain isn't event-sourced (state lives in tables; events are notifications). Switching to event-sourcing would change everything about persistence for one downstream benefit; the cost/benefit doesn't pay off here. |
 | **Two-phase commit (XA)** between DB and queue | SQS does not support XA. Even if it did, XA has well-known availability problems under partition. |
 | **Publish first, then DB write** | Inverts the failure mode (orphan events). Worse than the orphan-row problem because subscribers act on phantom events. |
-| **In-process Symfony Messenger with `doctrine://` transport** | This is the spec's default. It's effectively a degenerate outbox where the worker and writer share a transport. Sentinel does it explicitly with its own `outbox_events` table because (a) the event schema differs from Messenger's envelope, and (b) the Lambda deviation needs to dispatch to a non-Messenger consumer. |
+| **In-process Symfony Messenger with `doctrine://` transport** | The obvious in-process choice. It's effectively a degenerate outbox where the worker and writer share a transport. Sentinel does it explicitly with its own `outbox_events` table because (a) the event schema differs from Messenger's envelope, and (b) the Lambda consumer needs to receive a non-Messenger payload. |
 
 ### 9.2 Idempotency (two layers)
 
@@ -609,25 +610,24 @@ batch with one stuck message wouldn't pin the Lambda for minutes.
 
 ---
 
-## 10. Deliberate spec deviation — Lambda for outbound delivery
+## 10. Outbound delivery via Lambda and SQS
 
-The spec (§10.5) describes outbound delivery as a Symfony Messenger
-console worker. Sentinel runs it as an AWS Lambda function consuming
-an SQS queue, emulated locally by
-[floci](https://github.com/floci-io/floci).
+Outbound webhook delivery runs as an AWS Lambda function consuming an
+SQS queue, emulated locally by [floci](https://github.com/floci-io/floci).
+Inbound stays a Symfony controller — Lambda cold starts (~100–800 ms cold,
+~5 ms warm) are unpredictable enough to threaten the 200 ms inbound budget,
+so the runtime split is asymmetric on purpose.
 
-**Scope**. Outbound only. Inbound stays a Symfony controller on the
-200 ms budget. Lambda cold starts (~100–800 ms cold, ~5 ms warm) are
-unpredictable enough to threaten that budget; running it as a regular
-HTTP controller is the safer call.
+**Why this split.** The outbound path doesn't have a latency budget; what
+it has is a need for retry, dead-lettering, and horizontal scale without
+operator intervention. SQS + Lambda gives all of that as managed primitives
+the application doesn't have to re-implement. The cost is one additional
+language (TypeScript), one additional container (`floci`), and one
+additional deployable (`lambda/`). The boundary is narrow on purpose: the
+backend dispatches through one port (`OutboundWebhookDispatcher`) so the
+Lambda implementation is contained.
 
-**Why**. The user explicitly opted in to "expand the system
-complexity" to demonstrate a multi-runtime, queue-driven architecture.
-The cost is one additional language (TypeScript), one additional
-container (floci), one additional deployable (`lambda/`). The
-boundary is intentionally narrow so the deviation is contained.
-
-**Async-pattern alternatives considered for the deviation**:
+**Async-pattern alternatives considered**:
 
 | Pattern | Why not |
 |---|---|
@@ -779,9 +779,9 @@ not have to guess what was deferred vs. what was overlooked.
   "permanently failed".
 - **Admin replay endpoints**.
   `POST /api/admin/webhook-deliveries/{id}/replay` and
-  `GET /api/admin/webhook-deliveries?status=failed`. Listed in the
-  spec as "if time permits"; deferred. They're cheap to add but
-  meaningful only after the feedback loop above lands.
+  `GET /api/admin/webhook-deliveries?status=failed`. Deferred for
+  this work sample. They're cheap to add but meaningful only after
+  the feedback loop above lands.
 - **Real subscriber configuration**. Subscribers come from a static
   `config/packages/subscribers.yaml`. Production would manage them
   in a database with an admin UI, per-subscriber rate limits,
@@ -816,14 +816,6 @@ not have to guess what was deferred vs. what was overlooked.
 
 Choices that could have gone the other way, listed with the
 reasoning that tipped them.
-
-### `MerchantId` deliberately omitted
-
-Spec §4.2 lists `MerchantId` as an identifier value object, but no
-aggregate references it — `Merchant` is modeled as an identity-less
-value object on the Authorization aggregate. Adding an unused
-identifier class is exactly the cruft §17.1 warns against; the
-principle beat the literal listing.
 
 ### JSONB columns vs. embeddables vs. child tables
 
@@ -872,9 +864,9 @@ auth mechanism.
 
 ### One commit per phase, not feature branches
 
-The repo was built in eight commits aligned to the spec's §16 build
-order. The history is meant to be reviewable as a narrative — each
-commit is a self-contained, working state of the codebase at its
-stated level of capability. The alternative — a single squashed
-commit — would erase the chronology of decisions that
+The repo was built in eight commits, each scoped to one architectural
+layer or capability. The history is meant to be reviewable as a
+narrative — each commit is a self-contained, working state of the
+codebase at its stated level of capability. The alternative — a single
+squashed commit — would erase the chronology of decisions that
 `git blame --reverse` rewards.
