@@ -1,3 +1,15 @@
+x-app-environment: &app-environment
+  # APP_ENV is intentionally left to .env so PHPUnit can override it to
+  # "test" — a real OS env var would shadow the test-suite override.
+  DATABASE_URL: "postgresql://app:app@postgres:5432/cards?serverVersion=16&charset=utf8"
+  REDIS_URL: redis://redis:6379
+  MESSENGER_TRANSPORT_DSN: doctrine://default?auto_setup=0
+  AWS_ENDPOINT_URL: http://floci:4566
+  AWS_REGION: us-east-1
+  AWS_ACCESS_KEY_ID: test
+  AWS_SECRET_ACCESS_KEY: test
+  OUTBOUND_WEBHOOK_QUEUE_URL: http://floci:4566/000000000000/sentinel-outbound-deliveries
+
 services:
   app:
     build:
@@ -7,12 +19,7 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app
-    environment:
-      # APP_ENV is intentionally left to .env so PHPUnit can override it to
-      # "test" — a real OS env var would shadow the test-suite override.
-      DATABASE_URL: "postgresql://app:app@postgres:5432/cards?serverVersion=16&charset=utf8"
-      REDIS_URL: redis://redis:6379
-      MESSENGER_TRANSPORT_DSN: doctrine://default?auto_setup=0
+    environment: *app-environment
     depends_on:
       postgres:
         condition: service_healthy
@@ -44,6 +51,74 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+
+  # One-shot build container that installs node deps and bundles the
+  # Lambda handler into lambda/dist/handler.zip. floci waits for it.
+  lambda-builder:
+    image: node:22-alpine
+    working_dir: /lambda
+    volumes:
+      - ./lambda:/lambda
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        apk add --no-cache zip >/dev/null && \
+        npm install --no-audit --no-fund --silent && \
+        npm run package >/dev/null && \
+        echo "lambda built: $(ls -la dist/handler.zip)"
+
+  # Local AWS emulator. SQS + Lambda are the services we use; floci
+  # supports plenty more. The init script in ./infra/init/ runs on
+  # ready-state to create the queue, DLQ, Lambda function, and event-
+  # source mapping.
+  floci:
+    image: floci/floci:latest-compat
+    environment:
+      SERVICES: sqs,lambda
+      AWS_DEFAULT_REGION: us-east-1
+      # Allow spawned Lambda containers to reach mock-receiver on the
+      # same compose network.
+      LAMBDA_DOCKER_NETWORK: sentinel_default
+    ports:
+      - "4566:4566"
+    volumes:
+      - ./infra/init:/etc/localstack/init/ready.d
+      - ./lambda/dist:/opt/lambda
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      lambda-builder:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Long-running outbox publisher. Drains outbox_events → SQS → Lambda.
+  worker-outbox:
+    build:
+      context: ./backend
+      target: app
+    command: ["php", "bin/console", "app:outbox:publish"]
+    volumes:
+      - ./backend:/app
+    environment: *app-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+      floci:
+        condition: service_healthy
+
+  # Captures the actual webhook deliveries from the Lambda. Visit
+  # http://localhost:8888/ after running an authorization to see the
+  # request log.
+  mock-receiver:
+    image: mendhak/http-https-echo:34
+    environment:
+      HTTP_PORT: 8080
+      JWT_HEADER: X-Webhook-Signature
+    ports:
+      - "8888:8080"
 
 volumes:
   postgres_data:

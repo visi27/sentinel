@@ -33,9 +33,12 @@ services:
     App\Application\Shared\Clock: '@App\Infrastructure\Clock\SystemClock'
     App\Application\Shared\TransactionManager: '@App\Infrastructure\Persistence\Doctrine\DoctrineTransactionManager'
     App\Application\Outbox\OutboxRepository: '@App\Infrastructure\Persistence\Doctrine\DoctrineOutboxRepository'
+    App\Application\Outbox\OutboxReader: '@App\Infrastructure\Persistence\Doctrine\DoctrineOutboxRepository'
     App\Application\Idempotency\IdempotencyStore: '@App\Infrastructure\Idempotency\RedisIdempotencyStore'
     App\Application\Card\CardQueryService: '@App\Infrastructure\Persistence\Doctrine\Query\DoctrineCardQueryService'
     App\Application\Authorization\AuthorizationQueryService: '@App\Infrastructure\Persistence\Doctrine\Query\DoctrineAuthorizationQueryService'
+    App\Application\Webhook\OutboundWebhookDispatcher: '@App\Infrastructure\Webhook\SqsOutboundWebhookDispatcher'
+    App\Application\Webhook\WebhookDeliveryRepository: '@App\Infrastructure\Persistence\Doctrine\DoctrineWebhookDeliveryRepository'
 
     # Native ext-redis client constructed from REDIS_URL. The cache adapter
     # factory parses DSN, TLS, sentinel/cluster modes uniformly.
@@ -52,3 +55,22 @@ services:
         arguments:
             $adminKey: '%env(ADMIN_API_KEY)%'
             $readonlyKey: '%env(READONLY_API_KEY)%'
+
+    App\Application\Webhook\SubscriberRegistry:
+        arguments:
+            $subscribers: '%app.subscribers%'
+
+    # async-aws SQS client targeting floci (LocalStack-compatible). The
+    # endpoint URL is the only thing that differs from a real AWS setup.
+    AsyncAws\Sqs\SqsClient:
+        arguments:
+            $configuration:
+                endpoint: '%env(AWS_ENDPOINT_URL)%'
+                region: '%env(AWS_REGION)%'
+                accessKeyId: '%env(AWS_ACCESS_KEY_ID)%'
+                accessKeySecret: '%env(AWS_SECRET_ACCESS_KEY)%'
+                pathStyleEndpoint: true
+
+    App\Infrastructure\Webhook\SqsOutboundWebhookDispatcher:
+        arguments:
+            $queueUrl: '%env(OUTBOUND_WEBHOOK_QUEUE_URL)%'

@@ -1,0 +1,24 @@
+parameters:
+    # Outbound webhook subscribers. In production each entry would carry an
+    # env-resolved secret and a real URL; for the sample they point at the
+    # mock_webhook_receiver service in docker-compose.
+    app.subscribers:
+        - id: analytics_pipeline
+          name: Analytics Pipeline
+          url: 'http://mock-receiver:8080/analytics'
+          secret: '%env(ANALYTICS_WEBHOOK_SECRET)%'
+          event_types:
+              - card.authorization.approved
+              - card.authorization.declined
+          active: true
+
+        - id: sponsor_portal
+          name: Sponsor Portal
+          url: 'http://mock-receiver:8080/sponsor'
+          secret: '%env(SPONSOR_PORTAL_WEBHOOK_SECRET)%'
+          event_types:
+              - card.issued
+              - card.activated
+              - card.closed
+              - card.suspended
+          active: true

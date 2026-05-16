@@ -9,9 +9,10 @@ doctrine:
         profiling_collect_backtrace: '%kernel.debug%'
         use_savepoints: true
 
-        # outbox_events and messenger_messages are managed outside the ORM
-        # (DBAL inserts only); exclude them from schema-diff comparisons.
-        schema_filter: '~^(?!outbox_events|messenger_messages)~'
+        # outbox_events, webhook_deliveries, and messenger_messages are
+        # managed outside the ORM (DBAL inserts only); exclude them from
+        # schema-diff comparisons.
+        schema_filter: '~^(?!outbox_events|webhook_deliveries|messenger_messages)~'
 
         # Custom types map domain value objects to native Postgres columns.
         types:
