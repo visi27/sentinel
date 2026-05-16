@@ -6,8 +6,8 @@ info:
   description: |
     Spending-card authorization service. Inbound webhook from the card
     processor → idempotent decision → outbound webhook fan-out via SQS +
-    Lambda. See [ARCHITECTURE.md](https://github.com/) for the full
-    architectural walkthrough.
+    Lambda. See [ARCHITECTURE.md](https://github.com/visi27/sentinel/blob/main/ARCHITECTURE.md)
+    for the full architectural walkthrough.
 
     **Trust regimes**
 
