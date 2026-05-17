@@ -7,10 +7,10 @@ an SQS-triggered Lambda.
 
 ![PHP](https://img.shields.io/badge/php-8.3-777bb4) ![Symfony](https://img.shields.io/badge/symfony-6.4_LTS-000000) ![Doctrine](https://img.shields.io/badge/doctrine_orm-3.x-fc6a31) ![PHPStan](https://img.shields.io/badge/phpstan-level_8-1099c0) ![Tests](https://img.shields.io/badge/tests-153_passing-2ea44f) ![OpenAPI](https://img.shields.io/badge/openapi-3.1-6ba539)
 
-> **Reviewer shortcut**: `make up && make install && make migrate`, then
-> open <http://localhost:8000/docs> — full OpenAPI reference with a
-> built-in interactive console. The page signs the inbound webhook
-> with HMAC for you. Run `make check` to see the **153 tests** pass.
+> **Reviewer shortcut**: `make bootstrap`, then open
+> <http://localhost:8000/docs> — full OpenAPI reference with a built-in
+> interactive console. The page signs the inbound webhook with HMAC for
+> you. Run `make check` to see the **153 tests** pass.
 
 ## What this is
 
@@ -93,16 +93,26 @@ the outbox.
 Everything runs in Docker; no host PHP is required.
 
 ```bash
-# Start postgres, redis, the Symfony app, floci (LocalStack-compatible
-# AWS emulator), the outbox worker, and a mock receiver.
-make up
-
-# Install vendor dependencies and run migrations.
-make install
-make migrate
+make bootstrap
 ```
 
-Once `make up` finishes, three URLs are live:
+That's it. The target builds images, starts every container, installs
+PHP dependencies, applies migrations, and brings the outbox worker up
+in the correct order (it boots before migrations and exits when the
+`outbox_events` table is missing — the bootstrap handles that race for
+you). Total time on a fresh machine: a couple of minutes on first run,
+~15 seconds thereafter.
+
+If you'd rather run the steps individually, the same flow is:
+
+```bash
+make up         # build + start containers
+make install    # composer install inside the app container
+make migrate    # apply Doctrine migrations
+docker compose up -d worker-outbox   # only needed on first boot
+```
+
+Once bootstrap finishes, three URLs are live:
 
 | URL | Purpose |
 |---|---|
