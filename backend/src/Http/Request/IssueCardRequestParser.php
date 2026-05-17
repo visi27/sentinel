@@ -9,6 +9,12 @@ use Symfony\Component\HttpFoundation\Request;
 
 final class IssueCardRequestParser
 {
+    /** API-supported settlement currencies. The domain knows more (USD/EUR/GBP)
+     *  but the inbound contract is USD-only today; widen this list when adding
+     *  multi-currency support to the rest of the surface area.
+     */
+    private const ALLOWED_CURRENCIES = ['USD'];
+
     public function parse(Request $request): IssueCardCommand
     {
         $body = JsonReader::decode($request);
@@ -20,8 +26,8 @@ final class IssueCardRequestParser
             dailyLimit: JsonReader::int($limits, 'daily'),
             monthlyLimit: JsonReader::int($limits, 'monthly'),
             initialBalance: JsonReader::int($body, 'initial_balance'),
-            currency: JsonReader::string($body, 'currency'),
-            allowedMerchantCategoryCodes: JsonReader::stringList($body, 'allowed_merchant_categories'),
+            currency: JsonReader::stringEnum($body, 'currency', self::ALLOWED_CURRENCIES),
+            allowedMerchantCategoryCodes: JsonReader::nonEmptyStringList($body, 'allowed_merchant_categories'),
         );
     }
 }

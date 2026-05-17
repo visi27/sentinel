@@ -120,6 +120,35 @@ final class JsonReader
 
     /**
      * @param array<string, mixed> $body
+     *
+     * @return non-empty-list<string>
+     */
+    public static function nonEmptyStringList(array $body, string $field): array
+    {
+        $result = self::stringList($body, $field);
+        if ([] === $result) {
+            throw InvalidRequestException::invalidValue($field, 'must contain at least one element');
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param array<string, mixed>   $body
+     * @param non-empty-list<string> $allowed
+     */
+    public static function stringEnum(array $body, string $field, array $allowed): string
+    {
+        $value = self::string($body, $field);
+        if (!in_array($value, $allowed, true)) {
+            throw InvalidRequestException::invalidValue($field, sprintf('must be one of %s; got "%s"', implode(', ', $allowed), $value));
+        }
+
+        return $value;
+    }
+
+    /**
+     * @param array<string, mixed> $body
      */
     public static function dateTime(array $body, string $field): \DateTimeImmutable
     {

@@ -10,6 +10,8 @@ use Symfony\Component\HttpFoundation\Request;
 
 final class AuthorizationWebhookRequestParser
 {
+    private const ALLOWED_CURRENCIES = ['USD'];
+
     public function parse(Request $request): AuthorizeCardCommand
     {
         $body = JsonReader::decode($request);
@@ -30,7 +32,7 @@ final class AuthorizationWebhookRequestParser
             processorAuthId: JsonReader::string($body, 'processor_auth_id'),
             cardId: JsonReader::string($body, 'card_id'),
             amount: JsonReader::int($body, 'amount'),
-            currency: JsonReader::string($body, 'currency'),
+            currency: JsonReader::stringEnum($body, 'currency', self::ALLOWED_CURRENCIES),
             merchantName: JsonReader::string($merchant, 'name'),
             merchantCategoryCode: JsonReader::string($merchant, 'category_code'),
             merchantLocation: $location,

@@ -11,10 +11,14 @@ final class InvalidIdentifierException extends DomainException
      */
     public static function forValue(string $value, string $identifierType): self
     {
+        $shortName = false !== ($pos = strrpos($identifierType, '\\'))
+            ? substr($identifierType, $pos + 1)
+            : $identifierType;
+
         return new self(sprintf(
             '"%s" is not a valid %s: expected a UUID string.',
             $value,
-            $identifierType,
+            $shortName,
         ));
     }
 }
