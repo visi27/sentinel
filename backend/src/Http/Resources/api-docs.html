@@ -88,36 +88,67 @@
         .join("");
     }
 
+    // Normalize fetch() into { url, method, headers, body } so we can
+    // rewrite uniformly regardless of whether the caller passed
+    // fetch(url, init) (most code) or fetch(Request) (recent Scalar).
+    // When the caller passes a Request, init.body is undefined even
+    // though the Request itself carries one — we have to clone() and
+    // read it explicitly, otherwise the signature gets computed for
+    // an empty string and the body never reaches the server.
+    async function normalizeRequest(input, init) {
+      if (input instanceof Request) {
+        const method = input.method.toUpperCase();
+        const hasBody = method !== "GET" && method !== "HEAD";
+        return {
+          url: input.url,
+          method,
+          headers: new Headers(input.headers),
+          body: hasBody ? await input.clone().text() : null,
+        };
+      }
+      const method = (init.method || "GET").toUpperCase();
+      let body = null;
+      if (init.body != null && method !== "GET" && method !== "HEAD") {
+        body = typeof init.body === "string"
+          ? init.body
+          : await new Response(init.body).text();
+      }
+      return {
+        url: String(input),
+        method,
+        headers: new Headers(init.headers || {}),
+        body,
+      };
+    }
+
     const originalFetch = window.fetch.bind(window);
     window.fetch = async (input, init = {}) => {
-      const url = typeof input === "string" ? input : input.url;
-      const method = (init.method || (input.method ?? "GET")).toUpperCase();
+      const req = await normalizeRequest(input, init);
 
-      const headers = new Headers(init.headers || {});
+      let modified = false;
 
       // POST /api/authorizations → sign body with HMAC.
-      if (url.endsWith("/api/authorizations") && method === "POST") {
-        const body =
-          typeof init.body === "string"
-            ? init.body
-            : init.body
-              ? await new Response(init.body).text()
-              : "";
+      if (req.url.endsWith("/api/authorizations") && req.method === "POST") {
         const ts = Math.floor(Date.now() / 1000);
-        const sig = await hmacHex(secretInput.value, `${ts}.${body}`);
-        headers.set("X-Processor-Signature", `t=${ts},v1=${sig}`);
-        init = { ...init, headers, body };
+        const sig = await hmacHex(secretInput.value, `${ts}.${req.body ?? ""}`);
+        req.headers.set("X-Processor-Signature", `t=${ts},v1=${sig}`);
+        modified = true;
       }
-
       // /api/cards/* → attach API key from the settings input. Skip
       // documented requests (openapi.yaml, /docs itself) and the
       // health endpoint.
-      else if (url.includes("/api/cards")) {
-        if (apiKeyInput.value) headers.set("X-API-Key", apiKeyInput.value);
-        init = { ...init, headers };
+      else if (req.url.includes("/api/cards")) {
+        if (apiKeyInput.value) req.headers.set("X-API-Key", apiKeyInput.value);
+        modified = true;
       }
 
-      return originalFetch(input, init);
+      if (!modified) return originalFetch(input, init);
+
+      // Forward via init.headers override only — preserves the original
+      // Request's body, signal, credentials, mode, etc. Reconstructing
+      // the request from explicit fields would drop AbortSignal and
+      // break Scalar's downstream response handling with a TypeError.
+      return originalFetch(input, { ...init, headers: req.headers });
     };
   </script>
 
