@@ -649,7 +649,7 @@ Lambda implementation is contained.
 4. floci's event-source mapping invokes the Lambda with the SQS event.
 5. The Lambda POSTs to the subscriber URL with the HMAC signature
    header.
-6. `mock-receiver` (port 8888) captures the request for inspection.
+6. `mock-receiver` (port 8101 on the host) captures the request for inspection.
 
 **Why a shell init script and not Terraform**. For a sample of this
 size, ~60 lines of `awslocal` calls are more transparent than the

@@ -8,7 +8,7 @@ an SQS-triggered Lambda.
 ![PHP](https://img.shields.io/badge/php-8.3-777bb4) ![Symfony](https://img.shields.io/badge/symfony-6.4_LTS-000000) ![Doctrine](https://img.shields.io/badge/doctrine_orm-3.x-fc6a31) ![PHPStan](https://img.shields.io/badge/phpstan-level_8-1099c0) ![Tests](https://img.shields.io/badge/tests-153_passing-2ea44f) ![OpenAPI](https://img.shields.io/badge/openapi-3.1-6ba539)
 
 > **Reviewer shortcut**: `make bootstrap`, then open
-> <http://localhost:8000/docs> — full OpenAPI reference with a built-in
+> <http://localhost:8100/docs> — full OpenAPI reference with a built-in
 > interactive console. The page signs the inbound webhook with HMAC for
 > you. Run `make check` to see the **153 tests** pass.
 
@@ -88,6 +88,24 @@ The inbound path is a synchronous Symfony controller, on a strict 200ms
 P95 budget. Everything cross-aggregate or downstream is async, behind
 the outbox.
 
+## Prerequisites
+
+- **Docker** with Compose **v2** (the Makefile uses `docker compose`, not
+  `docker-compose`). Docker Desktop on macOS/Windows or a recent
+  `docker-ce` on Linux both work.
+- **GNU Make** (`brew install make` on macOS; preinstalled on most Linux).
+- **A Unix-style shell** (macOS, Linux, or WSL2 on Windows). The bootstrap
+  target uses Bash idioms; native Windows `cmd`/PowerShell won't run it.
+- **Free TCP ports**: only **8100** (API) and **8101** (mock-receiver) are
+  bound to the host. Postgres, Redis, and floci stay inside the compose
+  network so they don't collide with anything you already run locally
+  (Homebrew postgres on 5432, redis on 6379, etc.). To poke at them
+  anyway, use `docker compose exec` — see "Reset to a clean slate" below.
+- **~2 GB free disk** for the Docker images on first run.
+
+No host PHP, Composer, Node, or database is required — everything is
+inside containers.
+
 ## Quick start
 
 Everything runs in Docker; no host PHP is required.
@@ -116,61 +134,41 @@ Once bootstrap finishes, three URLs are live:
 
 | URL | Purpose |
 |---|---|
-| <http://localhost:8000/docs> | **Interactive API console** (OpenAPI 3.1 + Scalar). Recommended entry point. |
-| <http://localhost:8000> | The Symfony app itself |
-| <http://localhost:8888> | Mock subscriber — captured outbound deliveries echo here |
+| <http://localhost:8100/docs> | **Interactive API console** (OpenAPI 3.1 + Scalar). Recommended entry point. |
+| <http://localhost:8100> | The Symfony app itself |
+| <http://localhost:8101> | Mock subscriber — captured outbound deliveries echo here |
 
 A `docker compose ps` will also show four background containers with no
-reviewer-facing UI: `postgres`, `redis`, `floci` (LocalStack-compatible AWS
-emulator on 4566), and **`worker-outbox`** — the long-running PHP CLI that
-drains `outbox_events` → SQS → Lambda. A one-shot `lambda-builder` will
-appear as "exited" after bundling the Lambda zip; that's expected.
+reviewer-facing UI and no host port: `postgres`, `redis`, `floci`
+(LocalStack-compatible AWS emulator), and **`worker-outbox`** — the
+long-running PHP CLI that drains `outbox_events` → SQS → Lambda. A
+one-shot `lambda-builder` will appear as "exited" after bundling the
+Lambda zip; that's expected.
 
 The AWS resources floci provisions (SQS queue, DLQ, Lambda function,
 event-source mapping) are wired up by `infra/init/setup.sh` on
 container ready-state.
 
-### Interactive API reference
+### Reset to a clean slate
 
-Open **<http://localhost:8000/docs>** for the full OpenAPI 3.1
-reference with a built-in "Try it out" console.
-
-- The page signs `/api/webhooks/authorization` with HMAC-SHA256 in the
-  browser at send time — reviewers don't need a curl one-liner to
-  exercise the signed endpoint.
-- A sticky settings banner exposes the `X-API-Key` and processor
-  HMAC secret, pre-filled with the `.env` dev defaults
-  (`dev_admin_key`, `dev_processor_webhook_secret`). Change them in
-  place to test the rejection paths.
-
-Spec source: [`backend/openapi.yaml`](./backend/openapi.yaml) — a single
-hand-written file. A functional test
-(`tests/Functional/OpenApiSpecTest`) guards against drift: every
-routed endpoint must be in the spec, and the `IssueCard` 201
-response shape must match what the controller returns.
-
-### Or use curl
+To wipe everything (containers, volumes, postgres data, Redis state,
+built images) and start over:
 
 ```bash
-# 1. Issue a card and capture its id.
-CARD_ID=$(curl -s -X POST http://localhost:8000/api/cards \
-  -H 'X-API-Key: dev_admin_key' \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "cardholder_id": "01890d3a-3e95-7000-8000-1234567890ab",
-    "spending_limits": {"per_transaction": 50000, "daily": 200000, "monthly": 1000000},
-    "initial_balance": 100000,
-    "currency": "USD",
-    "allowed_merchant_categories": ["4121", "5812"]
-  }' | jq -r .id)
+docker compose down -v --remove-orphans   # containers + volumes + network
+docker rmi sentinel-app sentinel-worker-outbox   # force a Dockerfile rebuild
+make bootstrap                            # back up from scratch
+```
 
-# 2. Activate it.
-curl -X POST "http://localhost:8000/api/cards/$CARD_ID/activate" \
-  -H 'X-API-Key: dev_admin_key'
+`make down` (without args) only stops containers and keeps your data —
+useful between sessions; `down -v` is the full nuke.
 
-# 3. Authorize a transaction. The inbound webhook is HMAC-signed —
-#    see the "Inbound webhook example" section below for the full
-#    payload and signing dance.
+To peek at the internal services that aren't exposed to the host:
+
+```bash
+docker compose exec postgres psql -U app cards    # inspect tables
+docker compose exec redis redis-cli               # inspect idempotency cache
+docker compose exec floci awslocal sqs list-queues   # inspect SQS state
 ```
 
 ## How to read this repo
@@ -202,6 +200,51 @@ the domain outward and then through the async tail. Each step is one file.
 
 For the deeper architectural narrative — bounded contexts, reliability
 patterns, rejected alternatives — read [ARCHITECTURE.md](./ARCHITECTURE.md).
+
+## Exercising the API
+
+### Interactive console
+
+Open **<http://localhost:8100/docs>** for the full OpenAPI 3.1
+reference with a built-in "Try it out" console.
+
+- The page signs `/api/webhooks/authorization` with HMAC-SHA256 in the
+  browser at send time — reviewers don't need a curl one-liner to
+  exercise the signed endpoint.
+- A sticky settings banner exposes the `X-API-Key` and processor
+  HMAC secret, pre-filled with the `.env` dev defaults
+  (`dev_admin_key`, `dev_processor_webhook_secret`). Change them in
+  place to test the rejection paths.
+
+Spec source: [`backend/openapi.yaml`](./backend/openapi.yaml) — a single
+hand-written file. A functional test
+(`tests/Functional/OpenApiSpecTest`) guards against drift: every
+routed endpoint must be in the spec, and the `IssueCard` 201
+response shape must match what the controller returns.
+
+### Or use curl
+
+```bash
+# 1. Issue a card and capture its id.
+CARD_ID=$(curl -s -X POST http://localhost:8100/api/cards \
+  -H 'X-API-Key: dev_admin_key' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "cardholder_id": "01890d3a-3e95-7000-8000-1234567890ab",
+    "spending_limits": {"per_transaction": 50000, "daily": 200000, "monthly": 1000000},
+    "initial_balance": 100000,
+    "currency": "USD",
+    "allowed_merchant_categories": ["4121", "5812"]
+  }' | jq -r .id)
+
+# 2. Activate it.
+curl -X POST "http://localhost:8100/api/cards/$CARD_ID/activate" \
+  -H 'X-API-Key: dev_admin_key'
+
+# 3. Authorize a transaction. The inbound webhook is HMAC-signed —
+#    see the "Inbound webhook example" section below for the full
+#    payload and signing dance.
+```
 
 ## Key design decisions
 
@@ -278,7 +321,7 @@ sentinel/
 ├── infra/
 │   └── init/setup.sh        floci ready-state init: SQS queue + DLQ + Lambda
 ├── compose.yaml             All services
-├── Makefile                 up / install / migrate / test / phpstan / cs / check
+├── Makefile                 bootstrap / up / install / migrate / test / phpstan / cs / check
 ├── ARCHITECTURE.md          The deep architectural walkthrough
 └── README.md                You are here
 ```
@@ -291,6 +334,12 @@ make phpstan      # static analysis at level 8
 make cs           # PHP-CS-Fixer dry-run + diff
 make check        # phpstan + cs + test
 ```
+
+> `make test` expects the `cards_test` database to exist; `make bootstrap`
+> provisions it. If you bypassed bootstrap and ran the granular targets,
+> create it manually: `docker compose exec app php bin/console
+> --env=test doctrine:database:create --if-not-exists` followed by the
+> `--env=test` migration.
 
 Three test suites with distinct intent:
 
@@ -329,7 +378,7 @@ TS=$(date +%s)
 SECRET=dev_processor_webhook_secret   # value of PROCESSOR_WEBHOOK_SECRET
 SIG=$(printf '%s.%s' "$TS" "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -r | cut -d' ' -f1)
 
-curl -X POST http://localhost:8000/api/webhooks/authorization \
+curl -X POST http://localhost:8100/api/webhooks/authorization \
   -H "X-Processor-Signature: t=$TS,v1=$SIG" \
   -H 'Content-Type: application/json' \
   -d "$BODY"
@@ -373,7 +422,7 @@ service (`mendhak/http-https-echo`), which echoes every request back.
 docker compose logs -f mock-receiver
 
 # Or hit the receiver's web UI.
-open http://localhost:8888/
+open http://localhost:8101/
 ```
 
 Each outbound POST carries:

@@ -16,7 +16,10 @@ services:
       context: ./backend
       target: app
     ports:
-      - "8000:8000"
+      # Only the API and the mock-receiver bind to the host. Postgres,
+      # Redis, and floci stay inside the compose network so reviewers
+      # don't collide with their own local services on 5432/6379/4566.
+      - "8100:8000"
     volumes:
       - ./backend:/app
     environment: *app-environment
@@ -32,8 +35,6 @@ services:
       POSTGRES_DB: cards
       POSTGRES_USER: app
       POSTGRES_PASSWORD: app
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -44,8 +45,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -79,8 +78,6 @@ services:
       # Allow spawned Lambda containers to reach mock-receiver on the
       # same compose network.
       LAMBDA_DOCKER_NETWORK: sentinel_default
-    ports:
-      - "4566:4566"
     volumes:
       - ./infra/init:/etc/localstack/init/ready.d
       - ./lambda/dist:/opt/lambda
@@ -110,7 +107,7 @@ services:
         condition: service_healthy
 
   # Captures the actual webhook deliveries from the Lambda. Visit
-  # http://localhost:8888/ after running an authorization to see the
+  # http://localhost:8101/ after running an authorization to see the
   # request log.
   mock-receiver:
     image: mendhak/http-https-echo:34
@@ -118,7 +115,7 @@ services:
       HTTP_PORT: 8080
       JWT_HEADER: X-Webhook-Signature
     ports:
-      - "8888:8080"
+      - "8101:8080"
 
 volumes:
   postgres_data:

@@ -25,8 +25,8 @@ bootstrap:
 	docker compose up -d worker-outbox
 	@echo ""
 	@echo "✓ Sentinel is ready."
-	@echo "    API console:   http://localhost:8000/docs"
-	@echo "    Mock receiver: http://localhost:8888/"
+	@echo "    API console:   http://localhost:8100/docs"
+	@echo "    Mock receiver: http://localhost:8101/"
 	@echo ""
 	@echo "  Run 'make check' to confirm the test suite passes."
 

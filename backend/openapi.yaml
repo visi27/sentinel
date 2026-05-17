@@ -22,7 +22,7 @@ info:
     name: Sample — work-sample code, not for production use
 
 servers:
-  - url: http://localhost:8000
+  - url: http://localhost:8100
     description: Local development (default)
 
 tags:
