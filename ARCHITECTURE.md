@@ -59,7 +59,7 @@ C4Context
     title System context — Sentinel
 
     Person(admin, "Admin / Cardholder", "Issues cards, queries authorizations")
-    System_Ext(processor, "Card Processor", "Sends signed inbound authorization webhooks")
+    System_Ext(processor, "Card Processor", "Sends signed inbound authorization requests")
     System(sentinel, "Sentinel", "Spending-card authorization service")
     System_Ext(analytics, "Analytics Pipeline", "Subscribes to authorization outcomes")
     System_Ext(sponsor, "Sponsor Portal", "Subscribes to card lifecycle events")
@@ -95,7 +95,7 @@ C4Container
     Person(user, "API consumer", "Admin / Cardholder / Card Processor")
 
     System_Boundary(sentinel, "Sentinel") {
-        Container(api, "Symfony API", "PHP 8.3 · Symfony 6.4 · built-in HTTP server", "Inbound webhooks, REST endpoints, signature verification, idempotency cache")
+        Container(api, "Symfony API", "PHP 8.3 · Symfony 6.4 · built-in HTTP server", "Inbound authorization requests, REST endpoints, signature verification, idempotency cache")
         Container(worker, "Outbox worker", "PHP CLI · long-running", "Drains outbox_events with SELECT … FOR UPDATE SKIP LOCKED, fans out to subscribers")
         ContainerDb(pg, "Postgres 16", "Relational DB", "cards, authorizations, outbox_events, webhook_deliveries")
         ContainerDb(redis, "Redis 7", "In-memory KV", "Idempotency cache (processor_auth_id → response JSON)")
@@ -182,7 +182,7 @@ violation in the diff.
 | **Http** | Controllers (one per route, `__invoke`), `Request/*Parser` classes, `JsonReader`, `ApiKeyAuthenticator`, `ExceptionSubscriber` | Business decisions, transaction boundaries, repository access |
 | **Application** | `AuthorizeCardCommandHandler` and siblings, view DTOs (`CardView`, `AuthorizationView`), port interfaces, `SubscriberRegistry` | Domain rules, framework integration |
 | **Domain** | `Card`, `Authorization` aggregates; `Money`, `Currency`, `MerchantCategoryCode`, `GeoLocation` value objects; `CardIssued` and other events; `AggregateRoot`, `DomainEvent`, `Identifier`, `Uuid` primitives | DB shape, HTTP shape, anything dated `\DateTimeImmutable` *outside the aggregate boundary* (the application passes in `now`) |
-| **Infrastructure** | `DoctrineCardRepository`, `DoctrineAuthorizationRepository`, `DoctrineOutboxRepository`, `RedisIdempotencyStore`, `SqsOutboundWebhookDispatcher`, `ProcessorWebhookSignatureVerifier`, custom Doctrine types | Orchestration logic — adapters are dumb |
+| **Infrastructure** | `DoctrineCardRepository`, `DoctrineAuthorizationRepository`, `DoctrineOutboxRepository`, `RedisIdempotencyStore`, `SqsOutboundWebhookDispatcher`, `ProcessorSignatureVerifier`, custom Doctrine types | Orchestration logic — adapters are dumb |
 
 ---
 
@@ -194,9 +194,9 @@ debit cards from clinical trials. The vocabulary that's modeled:
 - **Card** — a virtual debit card with spending limits, an allowed
   merchant-category whitelist, and a lifecycle (Pending → Active →
   Suspended/Closed).
-- **Authorization** — a recorded decision. Every inbound webhook
-  produces exactly one (approval or decline, including for cards we
-  don't recognize).
+- **Authorization** — a recorded decision. Every inbound authorization
+  request produces exactly one (approval or decline, including for cards
+  we don't recognize).
 - **Merchant** — identity-less. The processor sends a name + MCC + an
   optional `GeoLocation`. Sentinel does not have a "merchant" table.
 - **Money** — currency-aware integer amounts (cents). All arithmetic
@@ -333,8 +333,8 @@ Sentinel is not that.
 sequenceDiagram
     autonumber
     actor P as Card Processor
-    participant C as AuthorizationWebhookController
-    participant V as ProcessorWebhookSignatureVerifier
+    participant C as AuthorizeCardController
+    participant V as ProcessorSignatureVerifier
     participant R as Redis (IdempotencyStore)
     participant H as AuthorizeCardCommandHandler
     participant CR as CardRepository
@@ -342,10 +342,10 @@ sequenceDiagram
     participant OB as OutboxRepository
     participant DB as Postgres
 
-    P->>C: POST /api/webhooks/authorization<br/>X-Processor-Signature: t=…,v1=…
+    P->>C: POST /api/authorizations<br/>X-Processor-Signature: t=…,v1=…
     C->>V: verify(request)
     alt signature invalid or stale
-        V-->>C: throw InvalidWebhookSignatureException
+        V-->>C: throw InvalidProcessorSignatureException
         C-->>P: 401 INVALID_SIGNATURE
     end
     C->>R: retrieve(processor_auth_id)
@@ -806,7 +806,7 @@ not have to guess what was deferred vs. what was overlooked.
   eventually expire if not captured. The Authorization aggregate
   has a `markReversed` capability but no scheduled expiry. Most
   card processors expire holds at 7 days.
-- **Rate limiting on the inbound webhook**. A processor
+- **Rate limiting on `POST /api/authorizations`**. A processor
   misbehaving could hammer Sentinel. Production would apply a token-bucket
   per processor identity (in Redis), with the limit configurable.
 

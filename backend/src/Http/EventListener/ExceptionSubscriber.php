@@ -13,7 +13,7 @@ use App\Domain\Money\Exception\CurrencyMismatchException;
 use App\Domain\Money\Exception\InvalidMoneyAmountException;
 use App\Domain\Shared\Exception\InvalidIdentifierException;
 use App\Http\Exception\InvalidRequestException;
-use App\Infrastructure\Webhook\Exception\InvalidWebhookSignatureException;
+use App\Infrastructure\Authorization\Exception\InvalidProcessorSignatureException;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Response;
@@ -52,7 +52,7 @@ final class ExceptionSubscriber implements EventSubscriberInterface
     private function responseFor(\Throwable $exception): ?JsonResponse
     {
         return match (true) {
-            $exception instanceof InvalidWebhookSignatureException => $this->envelope(
+            $exception instanceof InvalidProcessorSignatureException => $this->envelope(
                 Response::HTTP_UNAUTHORIZED,
                 'INVALID_SIGNATURE',
                 $exception->getMessage(),

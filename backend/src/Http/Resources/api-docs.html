@@ -41,11 +41,11 @@
       <input id="api-key-input" type="text" value="dev_admin_key" />
     </label>
     <label>
-      <span>Processor webhook secret (HMAC)</span>
-      <input id="processor-secret-input" type="text" value="dev_processor_webhook_secret" />
+      <span>Processor signing secret (HMAC)</span>
+      <input id="processor-secret-input" type="text" value="dev_processor_signing_secret" />
     </label>
     <div class="hint">
-      Requests to <code>/api/webhooks/authorization</code> are signed
+      Requests to <code>POST /api/authorizations</code> are signed
       automatically with the secret above.<br />
       Requests to <code>/api/cards/*</code> use the API key above as
       the <code>X-API-Key</code> header.
@@ -60,7 +60,7 @@
     // Scalar (and most OpenAPI consoles) build requests through the
     // standard fetch() API. We monkey-patch fetch once on load:
     //
-    // - Requests to /api/webhooks/authorization get a fresh timestamp,
+    // - Requests to POST /api/authorizations get a fresh timestamp,
     //   HMAC-SHA256(secret, `${ts}.${body}`), and the
     //   X-Processor-Signature header. The body is signed AS SENT — any
     //   edits the reviewer makes in the console are included.
@@ -95,8 +95,8 @@
 
       const headers = new Headers(init.headers || {});
 
-      // /api/webhooks/authorization → sign body with HMAC.
-      if (url.endsWith("/api/webhooks/authorization") && method === "POST") {
+      // POST /api/authorizations → sign body with HMAC.
+      if (url.endsWith("/api/authorizations") && method === "POST") {
         const body =
           typeof init.body === "string"
             ? init.body

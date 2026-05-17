@@ -1,7 +1,7 @@
 # Sentinel — Spending Card Authorization Service
 
 A Symfony 6.4 service that simulates a card-processor authorization platform:
-issues virtual spending cards, evaluates inbound authorization webhooks against
+issues virtual spending cards, evaluates inbound authorization requests against
 per-card rules, and fans the resulting events out to downstream subscribers via
 an SQS-triggered Lambda.
 
@@ -9,8 +9,8 @@ an SQS-triggered Lambda.
 
 > **Reviewer shortcut**: `make bootstrap`, then open
 > <http://localhost:8100/docs> — full OpenAPI reference with a built-in
-> interactive console. The page signs the inbound webhook with HMAC for
-> you. Run `make check` to see the **153 tests** pass.
+> interactive console. The page signs the inbound authorization request
+> with HMAC for you. Run `make check` to see the **153 tests** pass.
 
 ## What this is
 
@@ -23,7 +23,8 @@ delivery.
 The domain is inspired by patient travel reimbursement debit cards from
 clinical trials. Each card carries spending limits, an allowed merchant
 category list, and a lifecycle state machine (Pending → Active →
-Suspended/Closed). The card processor is simulated by an inbound webhook;
+Suspended/Closed). The card processor is simulated by a synchronous
+inbound HTTP request that returns the approve/decline decision;
 downstream consumers receive outbound webhooks describing every
 authorization outcome.
 
@@ -47,11 +48,11 @@ this service.
               ┌──────────────────────────────────────────────────────┐
               │  Card Processor (simulated)                          │
               └──────────┬───────────────────────────────────────────┘
-                         │ POST /api/webhooks/authorization
+                         │ POST /api/authorizations
                          │ X-Processor-Signature: t=…,v1=…
                          ▼
    ┌────────────────────────────────────────────────────┐      ┌──────────────────┐
-   │  AuthorizationWebhookController  (200ms budget)    │      │ Redis            │
+   │  AuthorizeCardController  (200ms budget)           │      │ Redis            │
    │     1. verify HMAC signature                       │ ◀──▶ │ (idempotency     │
    │     2. idempotency cache lookup                    │      │  cache, 24h TTL) │
    │     3. AuthorizeCardCommandHandler                 │      └──────────────────┘
@@ -184,10 +185,10 @@ the domain outward and then through the async tail. Each step is one file.
 2. **[`backend/src/Application/Card/AuthorizeCardCommandHandler.php`](./backend/src/Application/Card/AuthorizeCardCommandHandler.php)** —
    Orchestration. Loads the aggregate, calls the domain, persists the
    `Authorization` and outbox events in one transaction.
-3. **[`backend/src/Http/Controller/AuthorizationWebhookController.php`](./backend/src/Http/Controller/AuthorizationWebhookController.php)** —
+3. **[`backend/src/Http/Controller/AuthorizeCardController.php`](./backend/src/Http/Controller/AuthorizeCardController.php)** —
    Transport. HMAC verify → Redis idempotency lookup → handler → cache the
    response. The 200 ms hot path lives here.
-4. **[`backend/tests/Functional/AuthorizationWebhookTest.php`](./backend/tests/Functional/AuthorizationWebhookTest.php)** —
+4. **[`backend/tests/Functional/AuthorizeCardTest.php`](./backend/tests/Functional/AuthorizeCardTest.php)** —
    End-to-end proof. Real HTTP through the kernel; signature, idempotency,
    and the full decision chain all exercised.
 5. **[`backend/src/Infrastructure/Outbox/OutboxPublishCommand.php`](./backend/src/Infrastructure/Outbox/OutboxPublishCommand.php)** —
@@ -208,12 +209,12 @@ patterns, rejected alternatives — read [ARCHITECTURE.md](./ARCHITECTURE.md).
 Open **<http://localhost:8100/docs>** for the full OpenAPI 3.1
 reference with a built-in "Try it out" console.
 
-- The page signs `/api/webhooks/authorization` with HMAC-SHA256 in the
+- The page signs `POST /api/authorizations` with HMAC-SHA256 in the
   browser at send time — reviewers don't need a curl one-liner to
   exercise the signed endpoint.
 - A sticky settings banner exposes the `X-API-Key` and processor
   HMAC secret, pre-filled with the `.env` dev defaults
-  (`dev_admin_key`, `dev_processor_webhook_secret`). Change them in
+  (`dev_admin_key`, `dev_processor_signing_secret`). Change them in
   place to test the rejection paths.
 
 Spec source: [`backend/openapi.yaml`](./backend/openapi.yaml) — a single
@@ -241,9 +242,9 @@ CARD_ID=$(curl -s -X POST http://localhost:8100/api/cards \
 curl -X POST "http://localhost:8100/api/cards/$CARD_ID/activate" \
   -H 'X-API-Key: dev_admin_key'
 
-# 3. Authorize a transaction. The inbound webhook is HMAC-signed —
-#    see the "Inbound webhook example" section below for the full
-#    payload and signing dance.
+# 3. Authorize a transaction. The inbound POST /api/authorizations
+#    request is HMAC-signed — see the "Inbound authorization example"
+#    section below for the full payload and signing dance.
 ```
 
 ## Key design decisions
@@ -351,9 +352,9 @@ Three test suites with distinct intent:
 
 CI runs all three on every push (see `.github/workflows/ci.yml`).
 
-## Inbound webhook example
+## Inbound authorization example
 
-`POST /api/webhooks/authorization` is signed with HMAC-SHA256. The
+`POST /api/authorizations` is signed with HMAC-SHA256. The
 header is `X-Processor-Signature: t=<unix>,v1=<hex-hmac>`, signing the
 canonical message `<unix>.<request-body>`. A 5-minute clock skew is
 tolerated; outside that window the request is rejected.
@@ -375,10 +376,10 @@ BODY='{
   "requested_at": "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"
 }'
 TS=$(date +%s)
-SECRET=dev_processor_webhook_secret   # value of PROCESSOR_WEBHOOK_SECRET
+SECRET=dev_processor_signing_secret   # value of PROCESSOR_SIGNING_SECRET
 SIG=$(printf '%s.%s' "$TS" "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -r | cut -d' ' -f1)
 
-curl -X POST http://localhost:8100/api/webhooks/authorization \
+curl -X POST http://localhost:8100/api/authorizations \
   -H "X-Processor-Signature: t=$TS,v1=$SIG" \
   -H 'Content-Type: application/json' \
   -d "$BODY"

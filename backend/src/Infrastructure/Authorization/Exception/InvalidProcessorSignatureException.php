@@ -2,14 +2,15 @@
 
 declare(strict_types=1);
 
-namespace App\Infrastructure\Webhook\Exception;
+namespace App\Infrastructure\Authorization\Exception;
 
 /**
- * Raised when a processor webhook fails signature verification. Extends
- * RuntimeException rather than DomainException — signature failure is a
- * transport-layer concern, not a domain rule violation.
+ * Raised when a processor authorization request fails signature
+ * verification. Extends RuntimeException rather than DomainException —
+ * signature failure is a transport-layer concern, not a domain rule
+ * violation.
  */
-final class InvalidWebhookSignatureException extends \RuntimeException
+final class InvalidProcessorSignatureException extends \RuntimeException
 {
     public static function missingHeader(): self
     {

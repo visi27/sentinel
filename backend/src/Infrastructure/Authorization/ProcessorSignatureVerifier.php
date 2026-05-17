@@ -2,20 +2,21 @@
 
 declare(strict_types=1);
 
-namespace App\Infrastructure\Webhook;
+namespace App\Infrastructure\Authorization;
 
 use App\Application\Shared\Clock;
-use App\Infrastructure\Webhook\Exception\InvalidWebhookSignatureException;
+use App\Infrastructure\Authorization\Exception\InvalidProcessorSignatureException;
 use Symfony\Component\HttpFoundation\Request;
 
 /**
  * Verifies the HMAC-SHA256 signature the card processor attaches to its
- * inbound webhook. The header format is "t=<unix>,v1=<hex-hmac>", signing
- * the canonical message "<unix>.<request-body>".
+ * inbound authorization request. The header format is
+ * "t=<unix>,v1=<hex-hmac>", signing the canonical message
+ * "<unix>.<request-body>".
  *
  * The 5-minute tolerance window protects against captured-request replay.
  */
-final class ProcessorWebhookSignatureVerifier
+final class ProcessorSignatureVerifier
 {
     private const HEADER_NAME = 'X-Processor-Signature';
     private const DEFAULT_TOLERANCE_SECONDS = 300;
@@ -31,14 +32,14 @@ final class ProcessorWebhookSignatureVerifier
     {
         $header = $request->headers->get(self::HEADER_NAME);
         if (null === $header) {
-            throw InvalidWebhookSignatureException::missingHeader();
+            throw InvalidProcessorSignatureException::missingHeader();
         }
 
         [$timestamp, $signature] = $this->parseHeader($header);
 
         $age = $this->clock->now()->getTimestamp() - $timestamp;
         if ($age > $this->toleranceSeconds || $age < -$this->toleranceSeconds) {
-            throw InvalidWebhookSignatureException::staleTimestamp();
+            throw InvalidProcessorSignatureException::staleTimestamp();
         }
 
         $expected = hash_hmac('sha256', $timestamp.'.'.$request->getContent(), $this->sharedSecret);
@@ -46,7 +47,7 @@ final class ProcessorWebhookSignatureVerifier
         // hash_equals is the only way to compare HMACs safely — equality on
         // strings reveals the prefix on mismatch via timing.
         if (!hash_equals($expected, $signature)) {
-            throw InvalidWebhookSignatureException::mismatch();
+            throw InvalidProcessorSignatureException::mismatch();
         }
     }
 
@@ -73,11 +74,11 @@ final class ProcessorWebhookSignatureVerifier
         }
 
         if (null === $timestamp || null === $signature || '' === $timestamp || '' === $signature) {
-            throw InvalidWebhookSignatureException::malformedHeader();
+            throw InvalidProcessorSignatureException::malformedHeader();
         }
 
         if (1 !== preg_match('/^\d+$/', $timestamp)) {
-            throw InvalidWebhookSignatureException::malformedHeader();
+            throw InvalidProcessorSignatureException::malformedHeader();
         }
 
         return [(int) $timestamp, $signature];

@@ -47,9 +47,9 @@ services:
         factory: ['Symfony\Component\Cache\Adapter\RedisAdapter', 'createConnection']
         arguments: ['%env(REDIS_URL)%']
 
-    App\Infrastructure\Webhook\ProcessorWebhookSignatureVerifier:
+    App\Infrastructure\Authorization\ProcessorSignatureVerifier:
         arguments:
-            $sharedSecret: '%env(PROCESSOR_WEBHOOK_SECRET)%'
+            $sharedSecret: '%env(PROCESSOR_SIGNING_SECRET)%'
 
     App\Http\Security\ApiKeyAuthenticator:
         arguments:

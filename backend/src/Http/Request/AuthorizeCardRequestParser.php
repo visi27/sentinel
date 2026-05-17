@@ -8,7 +8,7 @@ use App\Application\Card\AuthorizeCardCommand;
 use App\Application\Card\MerchantLocationData;
 use Symfony\Component\HttpFoundation\Request;
 
-final class AuthorizationWebhookRequestParser
+final class AuthorizeCardRequestParser
 {
     private const ALLOWED_CURRENCIES = ['USD'];
 

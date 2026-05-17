@@ -4,17 +4,18 @@ info:
   title: Sentinel
   version: 1.0.0
   description: |
-    Spending-card authorization service. Inbound webhook from the card
-    processor → idempotent decision → outbound webhook fan-out via SQS +
-    Lambda. See [ARCHITECTURE.md](https://github.com/visi27/sentinel/blob/main/ARCHITECTURE.md)
+    Spending-card authorization service. Inbound authorization request
+    from the card processor → idempotent decision → outbound webhook
+    fan-out via SQS + Lambda. See
+    [ARCHITECTURE.md](https://github.com/visi27/sentinel/blob/main/ARCHITECTURE.md)
     for the full architectural walkthrough.
 
     **Trust regimes**
 
-    - **`/api/webhooks/authorization`** — signed by the card processor with
-      HMAC-SHA256. The interactive console on this page intercepts requests
+    - **`POST /api/authorizations`** — HMAC-SHA256 signed by the card
+      processor. The interactive console on this page intercepts requests
       to this endpoint and signs them for you using the
-      `processor_webhook_secret` configured at the bottom of the page.
+      `processor_signing_secret` configured at the bottom of the page.
     - **`/api/cards/*`** — `X-API-Key` header. Two virtual users:
       `admin` (full access) and `readonly` (GET only).
     - **`/health`** — unauthenticated.
@@ -30,9 +31,7 @@ tags:
   - name: Cards
     description: Card lifecycle (admin) and queries (readonly)
   - name: Authorizations
-    description: Authorization records — query side
-  - name: Inbound Webhook
-    description: HMAC-signed inbound calls from the card processor
+    description: Authorization decisioning (HMAC-signed inbound from the processor) and read-side queries
 
 paths:
   /health:
@@ -180,18 +179,22 @@ paths:
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '404': { $ref: '#/components/responses/NotFound' }
 
-  /api/webhooks/authorization:
+  /api/authorizations:
     post:
-      tags: [Inbound Webhook]
-      summary: Inbound authorization webhook (HMAC-signed)
+      tags: [Authorizations]
+      summary: Create an authorization (HMAC-signed, from the card processor)
       description: |
         The card processor POSTs here for every authorization request.
         Sentinel evaluates the request against the card's rules and
-        returns an approve/decline decision.
+        returns an approve/decline decision synchronously — the
+        processor expects the body within the 200 ms budget.
+
+        Despite the HMAC-style signing this is **not** a webhook (no
+        fire-and-forget); it's an RPC-shaped decisioning endpoint.
 
         **Signature**: `X-Processor-Signature: t=<unix>,v1=<hex-hmac>`
         over the canonical message `<unix>.<request-body>`. The
-        `processor_webhook_secret` is the shared secret. Replay window
+        `processor_signing_secret` is the shared secret. Replay window
         is 5 minutes.
 
         **Try it from this page**: the JS interceptor signs the request
@@ -218,7 +221,7 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/AuthorizationWebhookRequest' }
+            schema: { $ref: '#/components/schemas/AuthorizationRequest' }
             example:
               processor_auth_id: 'auth_abc123'
               card_id: '01890d3a-3e95-7000-8000-abcdef012345'
@@ -511,7 +514,7 @@ components:
       properties:
         reason: { type: string, minLength: 1 }
 
-    AuthorizationWebhookRequest:
+    AuthorizationRequest:
       type: object
       required:
         [processor_auth_id, card_id, amount, currency, merchant, requested_at]
