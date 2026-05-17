@@ -18,6 +18,8 @@ use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Event\ExceptionEvent;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Symfony\Component\HttpKernel\KernelEvents;
 
 /**
@@ -75,6 +77,16 @@ final class ExceptionSubscriber implements EventSubscriberInterface
                 Response::HTTP_UNPROCESSABLE_ENTITY,
                 'VALIDATION_ERROR',
                 $exception->getMessage(),
+            ),
+            $exception instanceof AccessDeniedHttpException => $this->envelope(
+                Response::HTTP_FORBIDDEN,
+                'FORBIDDEN',
+                'Insufficient privileges for this operation.',
+            ),
+            $exception instanceof HttpException && Response::HTTP_UNAUTHORIZED === $exception->getStatusCode() => $this->envelope(
+                Response::HTTP_UNAUTHORIZED,
+                'UNAUTHORIZED',
+                'Authentication required.',
             ),
             default => null,
         };

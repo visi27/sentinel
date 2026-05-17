@@ -9,7 +9,9 @@ RUN set -eux; \
     docker-php-ext-install pdo pdo_pgsql opcache; \
     pecl install redis; \
     docker-php-ext-enable redis; \
-    apk del .build-deps
+    apk del .build-deps; \
+    # Don't advertise the PHP runtime in response headers.
+    printf 'expose_php = Off\n' > /usr/local/etc/php/conf.d/zz-hide-runtime.ini
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
