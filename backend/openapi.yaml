@@ -413,6 +413,14 @@ components:
 
     DeclineReason:
       type: string
+      description: |
+        Closed set of reasons a request can be declined. Notes:
+        - `CARD_NOT_ACTIVE` is also returned when the `card_id` does not exist;
+          the processor cannot distinguish "not found" from "not active", by
+          design (no card-enumeration side-channel).
+        - `DUPLICATE_AUTHORIZATION` is reserved for a future use; live retries
+          of the same `processor_auth_id` are handled by the idempotency
+          layer and return the original decision verbatim.
       enum:
         - CARD_NOT_ACTIVE
         - INSUFFICIENT_FUNDS
