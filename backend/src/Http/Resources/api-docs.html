@@ -46,7 +46,9 @@
     </label>
     <div class="hint">
       Requests to <code>POST /api/authorizations</code> are signed
-      automatically with the secret above.<br />
+      automatically with the secret above, and the
+      <code>processor_auth_id</code> in the body is replaced with a
+      fresh value on every Send (real processors never reuse it).<br />
       Requests to <code>/api/cards/*</code> use the API key above as
       the <code>X-API-Key</code> header.
     </div>
@@ -55,20 +57,24 @@
   <div id="app"></div>
 
   <script>
-    // ── HMAC signing interceptor ──────────────────────────────────────
+    // ── HMAC signing + idempotency-key interceptor ────────────────────
     //
     // Scalar (and most OpenAPI consoles) build requests through the
     // standard fetch() API. We monkey-patch fetch once on load:
     //
-    // - Requests to POST /api/authorizations get a fresh timestamp,
-    //   HMAC-SHA256(secret, `${ts}.${body}`), and the
-    //   X-Processor-Signature header. The body is signed AS SENT — any
-    //   edits the reviewer makes in the console are included.
-    // - Requests to /api/cards/* get the X-API-Key header from the
-    //   settings input.
+    // - POST /api/authorizations: rotate processor_auth_id in the body
+    //   to a fresh value (so repeated Send clicks don't keep returning
+    //   the same cached response), HMAC-sign the resulting body, set
+    //   the X-Processor-Signature header. Any other body edits the
+    //   reviewer made are preserved.
+    // - /api/cards/*: attach the X-API-Key header from the settings
+    //   input.
     //
     // The interceptor is a development convenience for this page only;
-    // production consumers compute signatures server-side.
+    // real card processors compute signatures themselves and never
+    // reuse processor_auth_id, so rotating it here matches production
+    // behavior more closely than letting the example value reach the
+    // server on every click.
 
     const apiKeyInput = document.getElementById("api-key-input");
     const secretInput = document.getElementById("processor-secret-input");
@@ -125,30 +131,45 @@
     window.fetch = async (input, init = {}) => {
       const req = await normalizeRequest(input, init);
 
-      let modified = false;
-
-      // POST /api/authorizations → sign body with HMAC.
+      // POST /api/authorizations → rotate processor_auth_id (so repeated
+      // Send clicks don't keep hitting the idempotency cache and the
+      // DB unique constraint), sign the resulting body, attach the
+      // X-Processor-Signature header. Body changes, so we must
+      // forward via a new Request that inherits signal/credentials/mode
+      // from the original.
       if (req.url.endsWith("/api/authorizations") && req.method === "POST") {
+        let body = req.body ?? "";
+        try {
+          const parsed = JSON.parse(body);
+          if (parsed && typeof parsed === "object" && parsed !== null) {
+            parsed.processor_auth_id =
+              "console_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+            body = JSON.stringify(parsed);
+          }
+        } catch (_) {
+          // Body isn't JSON — leave it alone; server will reject.
+        }
+
         const ts = Math.floor(Date.now() / 1000);
-        const sig = await hmacHex(secretInput.value, `${ts}.${req.body ?? ""}`);
-        req.headers.set("X-Processor-Signature", `t=${ts},v1=${sig}`);
-        modified = true;
+        const sig = await hmacHex(secretInput.value, ts + "." + body);
+        req.headers.set("X-Processor-Signature", "t=" + ts + ",v1=" + sig);
+
+        if (input instanceof Request) {
+          return originalFetch(new Request(input, { body, headers: req.headers }));
+        }
+        return originalFetch(input, { ...init, headers: req.headers, body });
       }
-      // /api/cards/* → attach API key from the settings input. Skip
-      // documented requests (openapi.yaml, /docs itself) and the
-      // health endpoint.
-      else if (req.url.includes("/api/cards")) {
+
+      // /api/cards/* → attach API key from the settings input. Body is
+      // untouched, so we use the safe headers-only override pattern
+      // that preserves the original Request's body, signal,
+      // credentials, mode, etc.
+      if (req.url.includes("/api/cards")) {
         if (apiKeyInput.value) req.headers.set("X-API-Key", apiKeyInput.value);
-        modified = true;
+        return originalFetch(input, { ...init, headers: req.headers });
       }
 
-      if (!modified) return originalFetch(input, init);
-
-      // Forward via init.headers override only — preserves the original
-      // Request's body, signal, credentials, mode, etc. Reconstructing
-      // the request from explicit fields would drop AbortSignal and
-      // break Scalar's downstream response handling with a TypeError.
-      return originalFetch(input, { ...init, headers: req.headers });
+      return originalFetch(input, init);
     };
   </script>
 
