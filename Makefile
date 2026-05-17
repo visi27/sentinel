@@ -1,4 +1,4 @@
-.PHONY: bootstrap up down build logs sh install migrate fresh test phpstan cs cs-fix check
+.PHONY: bootstrap up down build logs sh install migrate fresh test phpstan cs cs-fix check smoke
 
 ## One-command from-scratch bring-up. Run this after `git clone`.
 ##
@@ -57,6 +57,12 @@ fresh:
 	docker compose exec app php bin/console doctrine:database:drop --force --if-exists
 	docker compose exec app php bin/console doctrine:database:create
 	docker compose exec app php bin/console doctrine:migrations:migrate --no-interaction --allow-no-migration
+
+## End-to-end smoke: issue → activate → authorize → balance/list →
+## verify the outbound webhook reached the mock-receiver. Re-runnable;
+## creates a fresh card on every invocation.
+smoke:
+	./scripts/smoke.sh
 
 ## Quality gates
 test:

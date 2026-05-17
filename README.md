@@ -322,7 +322,9 @@ sentinel/
 ├── infra/
 │   └── init/setup.sh        floci ready-state init: SQS queue + DLQ + Lambda
 ├── compose.yaml             All services
-├── Makefile                 bootstrap / up / install / migrate / test / phpstan / cs / check
+├── Makefile                 bootstrap / up / install / migrate / smoke / test / phpstan / cs / check
+├── scripts/
+│   └── smoke.sh             End-to-end script: issue → activate → authorize → verify fan-out
 ├── ARCHITECTURE.md          The deep architectural walkthrough
 └── README.md                You are here
 ```
@@ -330,11 +332,18 @@ sentinel/
 ## Testing
 
 ```bash
+make smoke        # end-to-end: issue → activate → authorize → fan-out (~25s)
 make test         # full PHPUnit run inside the app container
 make phpstan      # static analysis at level 8
 make cs           # PHP-CS-Fixer dry-run + diff
 make check        # phpstan + cs + test
 ```
+
+`make smoke` exercises the full pipeline against the running stack with
+real HTTP, real Postgres, real Redis, real SQS, and a real Lambda invocation;
+the assertion at the end confirms the outbound webhook actually arrived at
+the mock receiver. It's the one-line way to convince yourself the wiring
+holds end-to-end after a code change. See [`scripts/smoke.sh`](./scripts/smoke.sh).
 
 > `make test` expects the `cards_test` database to exist; `make bootstrap`
 > provisions it. If you bypassed bootstrap and ran the granular targets,
